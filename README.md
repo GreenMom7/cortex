@@ -124,8 +124,8 @@ The brand mark is built in pure CSS — concentric green dots in the navbar. No 
 
 ```bash
 cd backend
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+python -m venv .venv && source .venv/bin/activate     # try python3 if failed
+pip install -r requirements.txt    # try pip3 if failed
 cp .env.example .env             # optional — defaults can be entered via the UI
 ./run.sh                          # http://localhost:8000
 ```
