@@ -1,0 +1,180 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===========================================================
+   Cortex theme — paper-white / forest-green
+   Dark mode uses muted ink rather than pure black to stay easy
+   on the eyes for long sessions over a graph.
+   =========================================================== */
+
+:root {
+  --bg:         #fafbfa;
+  --bg-elev:   #ffffff;
+  --bg-soft:   #f1f3f1;
+  --fg:         #191c1a;
+  --fg-muted:  #5a635c;
+  --border:     #e2e5e3;
+  --accent:     #1e9352;
+  --accent-soft:#d5f1de;
+  --danger:     #b54343;
+  --warn:       #b08838;
+}
+
+.dark {
+  --bg:         #0f1311;
+  --bg-elev:   #161b18;
+  --bg-soft:   #1c2220;
+  --fg:         #e7ebe8;
+  --fg-muted:  #95a098;
+  --border:     #262c29;
+  --accent:     #74cf94;
+  --accent-soft:#0f5b35;
+  --danger:     #d77676;
+  --warn:       #d8b269;
+}
+
+* { border-color: var(--border); }
+
+html, body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: "Inter", system-ui, sans-serif;
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background-image:
+    radial-gradient(circle at 20% -20%, rgba(63, 180, 109, 0.06), transparent 50%),
+    radial-gradient(circle at 110% 110%, rgba(63, 180, 109, 0.04), transparent 50%);
+  background-attachment: fixed;
+  min-height: 100vh;
+}
+
+.font-mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+/* Custom scrollbar that doesn't shout */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 2px solid var(--bg);
+}
+::-webkit-scrollbar-thumb:hover { background: var(--fg-muted); }
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Utility classes that lean on the tokens */
+.panel {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.panel-soft {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+.text-muted { color: var(--fg-muted); }
+.text-accent { color: var(--accent); }
+.bg-accent-soft { background: var(--accent-soft); }
+.border-accent { border-color: var(--accent); }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.9rem;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  color: var(--fg);
+  transition: background 0.15s ease, transform 0.05s ease, border-color 0.15s ease;
+  cursor: pointer;
+}
+.btn:hover { background: var(--bg-soft); border-color: var(--fg-muted); }
+.btn:active { transform: translateY(1px); }
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+}
+.dark .btn-primary { color: #0f1311; }
+.btn-primary:hover { opacity: 0.92; }
+.btn-ghost { background: transparent; border-color: transparent; }
+.btn-ghost:hover { background: var(--bg-soft); }
+
+.input {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.82rem;
+  color: var(--fg);
+}
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.label {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+  margin-bottom: 0.35rem;
+  display: block;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.15rem 0.5rem;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.68rem;
+  border-radius: 999px;
+  background: var(--bg-soft);
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+}
+.chip-ok { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.dark .chip-ok { color: #aae3bd; }
+.chip-err { color: var(--danger); border-color: var(--danger); background: transparent; }
+
+/* The little brand mark in the navbar — concentric dots */
+.brand-mark {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    var(--accent) 0% 22%,
+    transparent 22% 42%,
+    var(--accent) 42% 55%,
+    transparent 55% 78%,
+    var(--accent) 78% 100%
+  );
+  opacity: 0.85;
+}
