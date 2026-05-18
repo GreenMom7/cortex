@@ -13,7 +13,9 @@ export function Navbar() {
       <div className="flex items-center gap-3">
         <span className="brand-mark" aria-hidden />
         <div className="flex items-baseline gap-2">
-          <span className="font-mono text-[1.05rem] font-semibold tracking-tight">cortex</span>
+          <span className="font-mono text-[1.05rem] font-semibold tracking-tight">
+            senak
+          </span>
           <span className="font-mono text-[0.68rem] uppercase tracking-[0.18em] text-muted">
             /human-in-the-loop graphRAG
           </span>
@@ -21,9 +23,7 @@ export function Navbar() {
       </div>
 
       <div className="flex items-center gap-3">
-        <span className="hidden sm:inline-flex chip font-mono">
-          v0.1
-        </span>
+        <span className="hidden sm:inline-flex chip font-mono">v0.1</span>
         <button
           onClick={toggle}
           className="btn btn-ghost"
@@ -31,7 +31,9 @@ export function Navbar() {
           title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
         >
           {theme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
-          <span className="hidden md:inline">{theme === "dark" ? "Light" : "Dark"}</span>
+          <span className="hidden md:inline">
+            {theme === "dark" ? "Light" : "Dark"}
+          </span>
         </button>
       </div>
     </header>

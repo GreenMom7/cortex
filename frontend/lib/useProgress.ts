@@ -20,12 +20,11 @@ const initial: Progress = {
   message: "",
 };
 
-const ACTIVE = new Set<Progress["stage"]>(["loading", "chunking", "extracting", "ingesting"]);
-
 /**
- * Streams pipeline progress via SSE, with an HTTP polling fallback in case
- * the EventSource never lands (proxy buffering, dev-server quirks, etc.).
- * Calls `onDone` once each time the pipeline transitions into "done".
+ * Streams pipeline progress. Polls /progress/snapshot every 1s as the source
+ * of truth (the endpoint is tiny — just reads a dict). SSE rides alongside
+ * for sub-second updates when it works. Either feed calls onDone() exactly
+ * once per "done" transition.
  */
 export function useProgress(onDone?: () => void) {
   const [progress, setProgress] = useState<Progress>(initial);
@@ -36,7 +35,6 @@ export function useProgress(onDone?: () => void) {
   useEffect(() => {
     const base = process.env.NEXT_PUBLIC_API_URL || "";
     let stopped = false;
-    let sseAlive = false;
 
     const apply = (next: Progress) => {
       setProgress(next);
@@ -45,27 +43,22 @@ export function useProgress(onDone?: () => void) {
       if (next.stage === "done" && prev !== "done") onDoneRef.current?.();
     };
 
-    // --- SSE primary ---
+    // --- SSE (best-effort) ---
     const es = new EventSource(`${base}/api/pipeline/progress`);
-    es.addEventListener("open", () => { sseAlive = true; });
     es.addEventListener("progress", (e: MessageEvent) => {
-      sseAlive = true;
       try { apply(JSON.parse(e.data)); } catch {}
     });
-    es.addEventListener("error", () => { sseAlive = false; });
+    es.addEventListener("error", () => { /* polling will carry us */ });
 
-    // --- Polling fallback ---
-    // Runs only while pipeline is active OR SSE looks dead. ~1s cadence is plenty.
+    // --- Polling (always on) ---
     const poll = async () => {
       if (stopped) return;
-      const active = ACTIVE.has(lastStageRef.current);
-      if (!sseAlive || active) {
-        try {
-          const snap = await api.getProgress();
-          apply(snap);
-        } catch { /* swallow */ }
-      }
+      try {
+        const snap = await api.getProgress();
+        apply(snap);
+      } catch { /* swallow */ }
     };
+    poll(); // immediate first read so the UI hydrates on mount
     const id = window.setInterval(poll, 1000);
 
     return () => {

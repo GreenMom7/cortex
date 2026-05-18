@@ -18,6 +18,29 @@ type Props = {
   selectedNode?: string | null;
 };
 
+// Per-class palette. Picked for distinguishability on both backgrounds.
+// "Entity" is the catch-all legacy label every node also carries; the picker
+// below ignores it and prefers the more specific type.
+const CLASS_COLORS: Record<string, string> = {
+  Person:       "#e89f8e",
+  Place:        "#7fa6d6",
+  Organization: "#a08bd1",
+  Event:        "#d4a248",
+  Date:         "#9aa3ab",
+  Work:         "#5fb0a5",
+  Concept:      "#7fc191",
+  Object:       "#b5856b",
+  Other:        "#b8b1a0",
+  Entity:       "#b8b1a0",
+};
+const FALLBACK_COLOR = "#b8b1a0";
+
+function pickClass(labels: string[] | undefined): string {
+  if (!labels?.length) return "Entity";
+  const specific = labels.find((l) => l !== "Entity");
+  return specific || labels[0];
+}
+
 export function GraphView({
   nodes, edges, highlightNodes = [], highlightEdges = [],
   onSelectNode, selectedNode,
@@ -25,21 +48,31 @@ export function GraphView({
   const { theme } = useTheme();
   const ref = useRef<GraphCanvasRef | null>(null);
 
-  // Translate our shape into reagraph's shape + apply highlight styling
+  // Build the set of classes actually present, for the legend
+  const classesPresent = useMemo(() => {
+    const set = new Set<string>();
+    for (const n of nodes) set.add(pickClass(n.labels));
+    return Array.from(set).sort();
+  }, [nodes]);
+
   const rgNodes: GraphNode[] = useMemo(
     () =>
       nodes.map((n) => {
         const isHi = highlightNodes.includes(n.id);
         const isSel = selectedNode === n.id;
+        const cls = pickClass(n.labels);
+        const base = CLASS_COLORS[cls] || FALLBACK_COLOR;
         return {
           id: n.id,
           label: n.label,
-          fill: isSel ? "#1e9352" : isHi ? "#74cf94" : theme === "dark" ? "#2a2f2b" : "#eef0ef",
-          data: n.data,
-          size: isSel || isHi ? 10 : 7,
+          fill: isSel ? "#1e9352" : isHi ? "#74cf94" : base,
+          data: { ...n.data, _class: cls },
+          // Node size in reagraph is in 3D units, not px. ~14 reads as a
+          // proper bubble with the label sitting on top of it.
+          size: isSel || isHi ? 18 : 14,
         } satisfies GraphNode;
       }),
-    [nodes, highlightNodes, selectedNode, theme]
+    [nodes, highlightNodes, selectedNode]
   );
 
   const rgEdges: GraphEdge[] = useMemo(
@@ -51,8 +84,8 @@ export function GraphView({
           source: e.source,
           target: e.target,
           label: e.label,
-          size: isHi ? 2.5 : 1,
-          fill: isHi ? "#1e9352" : theme === "dark" ? "#3f4640" : "#b4bab5",
+          size: isHi ? 3 : 1.6,
+          fill: isHi ? "#1e9352" : theme === "dark" ? "#5a635c" : "#7a847e",
         } satisfies GraphEdge;
       }),
     [edges, highlightEdges, theme]
@@ -62,35 +95,48 @@ export function GraphView({
     () =>
       theme === "dark"
         ? {
-            canvas: { background: "transparent" },
+            canvas: { background: "#161b18" },
             node: {
               fill: "#2a2f2b", activeFill: "#74cf94",
-              opacity: 1, selectedOpacity: 1, inactiveOpacity: 0.35,
-              label: { color: "#e7ebe8", stroke: "#0f1311", activeColor: "#74cf94" },
+              opacity: 1, selectedOpacity: 1, inactiveOpacity: 0.4,
+              label: {
+                color: "#f5f7f5", stroke: "#0f1311",
+                activeColor: "#74cf94", fontSize: 11,
+              },
             },
             ring: { fill: "#1e9352", activeFill: "#74cf94" },
             edge: {
-              fill: "#3f4640", activeFill: "#74cf94",
-              opacity: 0.7, selectedOpacity: 1, inactiveOpacity: 0.2,
-              label: { color: "#95a098", stroke: "#0f1311", activeColor: "#74cf94" },
+              fill: "#5a635c", activeFill: "#74cf94",
+              opacity: 0.9, selectedOpacity: 1, inactiveOpacity: 0.25,
+              label: {
+                color: "#e7ebe8", stroke: "#0f1311",
+                activeColor: "#74cf94", fontSize: 8, fontWeight: 700,
+              },
             },
-            arrow: { fill: "#3f4640", activeFill: "#74cf94" },
+            arrow: { fill: "#5a635c", activeFill: "#74cf94" },
             lasso: { border: "#74cf94", background: "rgba(116, 207, 148, 0.15)" },
           }
         : {
-            canvas: { background: "transparent" },
+            // Soft warm-paper background so dark edges + labels read clearly
+            canvas: { background: "#ecefe9" },
             node: {
               fill: "#eef0ef", activeFill: "#1e9352",
-              opacity: 1, selectedOpacity: 1, inactiveOpacity: 0.35,
-              label: { color: "#191c1a", stroke: "#ffffff", activeColor: "#1e9352" },
+              opacity: 1, selectedOpacity: 1, inactiveOpacity: 0.4,
+              label: {
+                color: "#0d100e", stroke: "#ffffff",
+                activeColor: "#1e9352", fontSize: 11,
+              },
             },
             ring: { fill: "#1e9352", activeFill: "#1e9352" },
             edge: {
-              fill: "#b4bab5", activeFill: "#1e9352",
-              opacity: 0.6, selectedOpacity: 1, inactiveOpacity: 0.2,
-              label: { color: "#5a635c", stroke: "#ffffff", activeColor: "#1e9352" },
+              fill: "#7a847e", activeFill: "#1e9352",
+              opacity: 0.95, selectedOpacity: 1, inactiveOpacity: 0.25,
+              label: {
+                color: "#1a201d", stroke: "#ffffff",
+                activeColor: "#1e9352", fontSize: 8, fontWeight: 700,
+              },
             },
-            arrow: { fill: "#b4bab5", activeFill: "#1e9352" },
+            arrow: { fill: "#7a847e", activeFill: "#1e9352" },
             lasso: { border: "#1e9352", background: "rgba(30, 147, 82, 0.12)" },
           },
     [theme]
@@ -106,11 +152,27 @@ export function GraphView({
         layoutType="forceDirected2d"
         labelType="all"
         edgeArrowPosition="end"
+        edgeLabelPosition="natural"
         draggable
         animated
         onNodeClick={(n) => onSelectNode?.(n.id)}
         onCanvasClick={() => onSelectNode?.(null)}
       />
+
+      {/* Legend — top-left */}
+      {classesPresent.length > 1 && (
+        <div className="absolute top-3 left-3 panel p-2 space-y-1 font-mono text-[0.65rem]">
+          {classesPresent.map((c) => (
+            <div key={c} className="flex items-center gap-1.5">
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-full"
+                style={{ background: CLASS_COLORS[c] || FALLBACK_COLOR }}
+              />
+              <span>{c}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Floating controls — bottom-right */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-2 panel p-1.5">

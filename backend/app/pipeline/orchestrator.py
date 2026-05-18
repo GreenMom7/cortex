@@ -8,7 +8,7 @@ from typing import Iterable
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.core.session import state
-from app.pipeline.extractor import extract_from_chunk
+from app.pipeline.extractor import extract_from_chunk, sanitize_label
 from app.pipeline.loaders import load_any
 from app.services.llm_service import get_llm
 from app.services.neo4j_service import neo4j_service
@@ -127,9 +127,14 @@ async def run_pipeline(sources: Iterable[str], clear_existing: bool = False) -> 
     ingested = 0
     for t in all_triples:
         rel = t["relation"]
+        s_label = sanitize_label(t.get("subject_type", "Other"))
+        o_label = sanitize_label(t.get("object_type", "Other"))
+        # Also tag with :Entity so legacy queries still match.
         cypher = f"""
-        MERGE (s:Entity {{name: $s}})
-        MERGE (o:Entity {{name: $o}})
+        MERGE (s:`{s_label}` {{name: $s}})
+        SET s:Entity
+        MERGE (o:`{o_label}` {{name: $o}})
+        SET o:Entity
         MERGE (s)-[:`{rel}`]->(o)
         """
         try:
