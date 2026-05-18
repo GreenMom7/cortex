@@ -26,7 +26,6 @@ Write ONE read-only Cypher query that retrieves the entities and relationships
 needed to answer the question. Rules:
 - Match relevant Entity nodes by name (use CONTAINS or =~ regex, case-insensitive).
 - Return n, r, m so we can identify nodes and edges.
-- LIMIT 25.
 - No comments, no markdown — Cypher only.
 
 Question: {question}
