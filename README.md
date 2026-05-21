@@ -24,9 +24,13 @@ Built for DS50 — *Interactive GraphRAG: Human-in-the-Loop Knowledge Engineerin
 ## Stack
 
 **Backend** — FastAPI + async Neo4j driver + SSE (`sse-starlette`) for progress streaming
+
 **Frontend** — Next.js 15 (App Router) + React 19 + Tailwind + [Reagraph](https://reagraph.dev) (WebGL) for the graph + Sonner for toasts
+
 **LLM providers** — OpenAI · Gemini · Anthropic · NVIDIA · Groq (the user picks at runtime — no recompile)
+
 **Embeddings** — HuggingFace sentence-transformers, NVIDIA, or OpenAI
+
 **Graph database** — Neo4j AuraDB (or self-hosted)
 
 ---
