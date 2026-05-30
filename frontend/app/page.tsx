@@ -4,7 +4,7 @@ import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { GraphView } from "@/components/graph/GraphView";
 import { NodeDetails } from "@/components/graph/NodeDetails";
-import { ChatPanel } from "@/components/chat/ChatPanel";
+import { ChatPanel , Turn } from "@/components/chat/ChatPanel";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
 import { useGraph } from "@/lib/useGraph";
 
@@ -15,6 +15,7 @@ export default function Page() {
   const [highlightEdges, setHE] = useState<string[]>([]);
   const [rightTab, setRightTab] = useState<"chat" | "node" | "history">("chat");
   const [historyBump, setHistoryBump] = useState(0);
+  const [chatTurns, setChatTurns] = useState<Turn[]>([]);
 
   const selectedNode = useMemo(
     () => nodes.find((n) => n.id === selected) || null,
@@ -83,7 +84,7 @@ export default function Page() {
           </nav>
 
           <div className="flex-1 min-h-0">
-            {rightTab === "chat" && <ChatPanel onHighlight={handleHighlight} />}
+            {rightTab === "chat" && <ChatPanel turns={chatTurns} setTurns={setChatTurns} onHighlight={handleHighlight} />}
             {rightTab === "node" && (
               <NodeDetails
                 node={selectedNode}
