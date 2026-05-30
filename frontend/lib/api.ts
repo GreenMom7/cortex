@@ -95,6 +95,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ source_id, target_id, relation, properties }),
     }),
+  updateRelation: (edge_id: string, relation: string, properties: Record<string, any> = {}) =>
+    call<{ ok: boolean; edge_id: string }>(`/api/graph/relations/${encodeURIComponent(edge_id)}`, {
+      method: "PATCH",
+      body: JSON.stringify({ relation, properties }),
+    }),
   deleteRelation: (edge_id: string) =>
     call(`/api/graph/relations/${encodeURIComponent(edge_id)}`, { method: "DELETE" }),
 
@@ -102,10 +107,10 @@ export const api = {
   getHistory: (limit = 50) => call<{ items: ChangeEntry[] }>(`/api/history?limit=${limit}`),
 
   // Chat
-  chat: (question: string) =>
+  chat: (question: string, history: { question: string; answer: string }[] = []) =>
     call<ChatResponse>("/api/chat", {
       method: "POST",
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, history }),
     }),
 };
 

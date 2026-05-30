@@ -50,8 +50,19 @@ class AddRelation(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
 
 
+class RelationUpdate(BaseModel):
+    relation: str | None = None
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatTurn(BaseModel):
+    question: str
+    answer: str
+
+
 class ChatRequest(BaseModel):
     question: str
+    history: list[ChatTurn] = Field(default_factory=list)
 
 
 class StatusResponse(BaseModel):

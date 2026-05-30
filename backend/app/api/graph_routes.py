@@ -10,6 +10,7 @@ from app.models.schemas import (
     GraphResponse,
     MergeNodes,
     NodeUpdate,
+    RelationUpdate,
     StatusResponse,
 )
 from app.services.chat_service import graphrag_answer
@@ -58,6 +59,13 @@ async def add_relation(body: AddRelation):
     return {"ok": True, "edge_id": edge_id}
 
 
+@router.patch("/graph/relations/{edge_id}")
+async def update_relation(edge_id: str, body: RelationUpdate):
+    _require_connected()
+    new_id = await neo4j_service.update_relation(edge_id, body.relation, body.properties)
+    return {"ok": True, "edge_id": new_id}
+
+
 @router.delete("/graph/relations/{edge_id}", response_model=StatusResponse)
 async def delete_relation(edge_id: str):
     _require_connected()
@@ -89,4 +97,5 @@ async def chat(req: ChatRequest):
     _require_connected()
     if not state.llm_provider:
         raise HTTPException(400, "LLM not configured.")
-    return await graphrag_answer(req.question)
+    history = [{"question": t.question, "answer": t.answer} for t in req.history]
+    return await graphrag_answer(req.question, history=history)

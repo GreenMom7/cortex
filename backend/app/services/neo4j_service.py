@@ -137,33 +137,63 @@ class Neo4jService:
         state.record_change("delete_node", node_id, before[0] if before else None, None)
 
     async def merge_nodes(self, source_id: str, target_id: str):
-        """Merge source into target: move all relationships, then delete source."""
+        """Merge source into target: move all relationships preserving their types, then delete source.
+
+        Cypher can't parameterize relationship type names, so we first ask for the
+        distinct types and then issue one rewire query per type with the type
+        spliced into the query string (backticks stripped to prevent injection).
+        Type names returned by type() are valid Neo4j identifiers by construction.
+        """
         before = await self.run(
             "MATCH (s),(t) WHERE elementId(s)=$s AND elementId(t)=$t RETURN s,t",
             {"s": source_id, "t": target_id},
         )
-        # APOC is the clean way but isn't always installed — do it manually
+        params = {"src": source_id, "tgt": target_id}
+
+        out_types = await self.run(
+            "MATCH (s)-[r]->(x) WHERE elementId(s) = $src AND elementId(x) <> $tgt "
+            "RETURN DISTINCT type(r) AS t",
+            params,
+        )
+        in_types = await self.run(
+            "MATCH (x)-[r]->(s) WHERE elementId(s) = $src AND elementId(x) <> $tgt "
+            "RETURN DISTINCT type(r) AS t",
+            params,
+        )
+
+        for row in out_types:
+            t = (row["t"] or "").replace("`", "")
+            if not t:
+                continue
+            await self.run(
+                f"""
+                MATCH (s)-[r:`{t}`]->(x) WHERE elementId(s) = $src AND elementId(x) <> $tgt
+                MATCH (tgt) WHERE elementId(tgt) = $tgt
+                MERGE (tgt)-[r2:`{t}`]->(x)
+                SET r2 += properties(r)
+                DELETE r
+                """,
+                params,
+            )
+
+        for row in in_types:
+            t = (row["t"] or "").replace("`", "")
+            if not t:
+                continue
+            await self.run(
+                f"""
+                MATCH (x)-[r:`{t}`]->(s) WHERE elementId(s) = $src AND elementId(x) <> $tgt
+                MATCH (tgt) WHERE elementId(tgt) = $tgt
+                MERGE (x)-[r2:`{t}`]->(tgt)
+                SET r2 += properties(r)
+                DELETE r
+                """,
+                params,
+            )
+
         await self.run(
-            """
-            MATCH (s) WHERE elementId(s) = $src
-            MATCH (t) WHERE elementId(t) = $tgt
-            CALL {
-              WITH s, t
-              MATCH (s)-[r]->(x) WHERE x <> t
-              MERGE (t)-[r2:RELATED]->(x)
-              SET r2 = properties(r)
-              DELETE r
-            }
-            CALL {
-              WITH s, t
-              MATCH (x)-[r]->(s) WHERE x <> t
-              MERGE (x)-[r2:RELATED]->(t)
-              SET r2 = properties(r)
-              DELETE r
-            }
-            DETACH DELETE s
-            """,
-            {"src": source_id, "tgt": target_id},
+            "MATCH (s) WHERE elementId(s) = $src DETACH DELETE s",
+            {"src": source_id},
         )
         state.record_change("merge_nodes", f"{source_id}->{target_id}",
                             before[0] if before else None, None)
@@ -188,6 +218,74 @@ class Neo4jService:
             {"id": edge_id, "relation": relation, "properties": properties or {}},
         )
         return edge_id
+
+    async def update_relation(self, edge_id: str, new_relation: str | None = None,
+                              new_properties: dict | None = None) -> str | None:
+        """Rename a relationship (and/or update its properties).
+
+        Neo4j relationship types are immutable, so renaming = create new typed
+        rel between the same endpoints with merged properties, then delete the
+        old one. Returns the new edge's elementId.
+        """
+        rows = await self.run(
+            "MATCH (s)-[r]->(t) WHERE elementId(r) = $id "
+            "RETURN elementId(s) AS s, elementId(t) AS t, type(r) AS type, properties(r) AS props",
+            {"id": edge_id},
+        )
+        if not rows:
+            raise ValueError(f"Relation {edge_id} not found")
+        row = rows[0]
+        before = {
+            "id": edge_id,
+            "source_id": row["s"],
+            "target_id": row["t"],
+            "relation": row["type"],
+            "properties": row["props"] or {},
+        }
+
+        target_type = (new_relation or row["type"]).strip().upper().replace(" ", "_")
+        target_type = target_type.replace("`", "")
+        if not target_type:
+            raise ValueError("Relation name cannot be empty")
+
+        merged_props = {**(row["props"] or {}), **(new_properties or {})}
+
+        # If the type is unchanged, just patch properties in place
+        if target_type == row["type"]:
+            await self.run(
+                "MATCH ()-[r]->() WHERE elementId(r) = $id SET r += $props RETURN elementId(r) AS id",
+                {"id": edge_id, "props": new_properties or {}},
+            )
+            state.record_change(
+                "update_relation", edge_id,
+                before,
+                {**before, "properties": merged_props},
+            )
+            return edge_id
+
+        # Type changed: create new, delete old
+        new_rows = await self.run(
+            f"""
+            MATCH (s) WHERE elementId(s) = $s
+            MATCH (t) WHERE elementId(t) = $t
+            MERGE (s)-[r2:`{target_type}`]->(t)
+            SET r2 += $props
+            RETURN elementId(r2) AS id
+            """,
+            {"s": row["s"], "t": row["t"], "props": merged_props},
+        )
+        new_id = new_rows[0]["id"] if new_rows else None
+        await self.run(
+            "MATCH ()-[r]->() WHERE elementId(r) = $id DELETE r",
+            {"id": edge_id},
+        )
+        state.record_change(
+            "update_relation", f"{edge_id} -> {new_id}",
+            before,
+            {"id": new_id, "source_id": row["s"], "target_id": row["t"],
+             "relation": target_type, "properties": merged_props},
+        )
+        return new_id
 
     async def delete_relation(self, edge_id: str):
         before = await self.run(

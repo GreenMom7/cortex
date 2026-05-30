@@ -1,14 +1,14 @@
 "use client";
-import { Trash2, Save, GitMerge, Plus } from "lucide-react";
+import { Trash2, Save, GitMerge, Plus, Copy, Pencil, Check, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, GraphNode, GraphEdge } from "@/lib/api";
 import { toast } from "sonner";
 
 type Props = {
   node: GraphNode | null;
-  nodes: GraphNode[];           // for the merge / add-relation pickers
+  nodes: GraphNode[]; // for the merge / add-relation pickers
   edges: GraphEdge[];
-  onChange: () => void;          // ask the parent to refetch the graph
+  onChange: () => void; // ask the parent to refetch the graph
   onClose: () => void;
 };
 
@@ -22,6 +22,8 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
       setLabel(node.labels[0] || "Entity");
     }
   }, [node]);
+
+  console.log(node);
 
   if (!node) {
     return (
@@ -57,7 +59,9 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
     }
   }
   async function merge() {
-    const targetId = prompt("Merge INTO which node ID? (find it in the node list)");
+    const targetId = prompt(
+      "Merge INTO which node ID? (find it in the node list)",
+    );
     if (!targetId) return;
     try {
       await api.mergeNodes(node!.id, targetId);
@@ -73,7 +77,11 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
     const rel = prompt("Relationship name (e.g. WORKS_FOR)?");
     if (!targetId || !rel) return;
     try {
-      await api.addRelation(node!.id, targetId, rel.toUpperCase().replace(/\s+/g, "_"));
+      await api.addRelation(
+        node!.id,
+        targetId,
+        rel.toUpperCase().replace(/\s+/g, "_"),
+      );
       toast.success("Relation added");
       onChange();
     } catch (e: any) {
@@ -86,15 +94,48 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
       <div className="px-4 py-3 border-b flex items-center justify-between">
         <div>
           <div className="label !mb-0">Selected node</div>
-          <h3 className="font-mono text-sm font-semibold truncate">{node.label}</h3>
+          <h3 className="font-mono text-sm font-semibold truncate">
+            {node.label}
+          </h3>
         </div>
-        <button onClick={onClose} className="btn btn-ghost !text-[0.7rem]">close</button>
+        <button onClick={onClose} className="btn btn-ghost !text-[0.7rem]">
+          close
+        </button>
       </div>
 
       <div className="px-4 py-3 space-y-4 overflow-y-auto flex-1">
         <div>
+          <label className="label">Node ID</label>
+          <div className="flex items-center gap-1">
+            <code
+              className="font-mono text-[0.72rem] panel-soft px-2 py-1.5 rounded flex-1 truncate select-all normal-case tracking-normal"
+              title={node.id}
+            >
+              {node.id}
+            </code>
+            <button
+              className="btn btn-ghost !p-2 shrink-0"
+              title="Copy ID"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(node.id);
+                  toast.success("Node ID copied");
+                } catch {
+                  toast.error("Could not copy");
+                }
+              }}
+            >
+              <Copy size={12} />
+            </button>
+          </div>
+        </div>
+        <div>
           <label className="label">Class / label</label>
-          <input className="input" value={label} onChange={(e) => setLabel(e.target.value)} />
+          <input
+            className="input"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+          />
         </div>
 
         <div>
@@ -136,38 +177,22 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
               <span className="text-muted">No relationships.</span>
             )}
             {outgoing.map((e) => (
-              <div key={e.id} className="flex items-center gap-1 text-muted">
-                <span className="text-accent">→</span>
-                <span className="font-semibold">{e.label}</span>
-                <span className="truncate">{nodes.find((n) => n.id === e.target)?.label ?? "?"}</span>
-                <button
-                  className="btn btn-ghost ml-auto !p-1"
-                  onClick={async () => {
-                    await api.deleteRelation(e.id);
-                    toast.success("Relation removed");
-                    onChange();
-                  }}
-                >
-                  <Trash2 size={11} />
-                </button>
-              </div>
+              <RelationRow
+                key={e.id}
+                edge={e}
+                direction="out"
+                otherLabel={nodes.find((n) => n.id === e.target)?.label ?? "?"}
+                onChange={onChange}
+              />
             ))}
             {incoming.map((e) => (
-              <div key={e.id} className="flex items-center gap-1 text-muted">
-                <span className="text-muted">←</span>
-                <span className="font-semibold">{e.label}</span>
-                <span className="truncate">{nodes.find((n) => n.id === e.source)?.label ?? "?"}</span>
-                <button
-                  className="btn btn-ghost ml-auto !p-1"
-                  onClick={async () => {
-                    await api.deleteRelation(e.id);
-                    toast.success("Relation removed");
-                    onChange();
-                  }}
-                >
-                  <Trash2 size={11} />
-                </button>
-              </div>
+              <RelationRow
+                key={e.id}
+                edge={e}
+                direction="in"
+                otherLabel={nodes.find((n) => n.id === e.source)?.label ?? "?"}
+                onChange={onChange}
+              />
             ))}
           </div>
         </div>
@@ -183,10 +208,131 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
         <button onClick={merge} className="btn">
           <GitMerge size={13} /> Merge
         </button>
-        <button onClick={del} className="btn col-span-2" style={{ color: "var(--danger)" }}>
+        <button
+          onClick={del}
+          className="btn col-span-2"
+          style={{ color: "var(--danger)" }}
+        >
           <Trash2 size={13} /> Delete node
         </button>
       </div>
+    </div>
+  );
+}
+
+function RelationRow({
+  edge,
+  direction,
+  otherLabel,
+  onChange,
+}: {
+  edge: GraphEdge;
+  direction: "in" | "out";
+  otherLabel: string;
+  onChange: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(edge.label);
+  const [busy, setBusy] = useState(false);
+
+  async function save() {
+    const next = draft.trim().toUpperCase().replace(/\s+/g, "_");
+    if (!next) {
+      toast.error("Relation name required");
+      return;
+    }
+    if (next === edge.label) {
+      setEditing(false);
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.updateRelation(edge.id, next);
+      toast.success("Relation renamed");
+      setEditing(false);
+      onChange();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove() {
+    setBusy(true);
+    try {
+      await api.deleteRelation(edge.id);
+      toast.success("Relation removed");
+      onChange();
+    } catch (err: any) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const arrow = direction === "out"
+    ? <span className="text-accent">→</span>
+    : <span className="text-muted">←</span>;
+
+  return (
+    <div className="flex items-center gap-1 text-muted">
+      {arrow}
+      {editing ? (
+        <input
+          autoFocus
+          className="input !py-0.5 !px-1.5 !text-[0.72rem] !w-auto flex-1 min-w-0"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") save();
+            if (e.key === "Escape") { setDraft(edge.label); setEditing(false); }
+          }}
+          disabled={busy}
+        />
+      ) : (
+        <span className="font-semibold">{edge.label}</span>
+      )}
+      <span className="truncate">{otherLabel}</span>
+      {editing ? (
+        <>
+          <button
+            className="btn btn-ghost ml-auto !p-1"
+            title="Save"
+            disabled={busy}
+            onClick={save}
+          >
+            <Check size={11} />
+          </button>
+          <button
+            className="btn btn-ghost !p-1"
+            title="Cancel"
+            disabled={busy}
+            onClick={() => { setDraft(edge.label); setEditing(false); }}
+          >
+            <X size={11} />
+          </button>
+        </>
+      ) : (
+        <>
+          <button
+            className="btn btn-ghost ml-auto !p-1"
+            title="Rename"
+            disabled={busy}
+            onClick={() => setEditing(true)}
+          >
+            <Pencil size={11} />
+          </button>
+          <button
+            className="btn btn-ghost !p-1"
+            title="Delete"
+            disabled={busy}
+            onClick={remove}
+          >
+            <Trash2 size={11} />
+          </button>
+        </>
+      )}
     </div>
   );
 }
