@@ -15,14 +15,23 @@ export function LLMConfigCard() {
   useEffect(() => {
     api.listProviders().then((r) => setProviders(r.providers)).catch(() => {});
     // Rehydrate from backend session so a page refresh doesn't blank the UI.
-    api.getStatus().then((s) => {
-      if (s.llm_provider) {
-        setProvider(s.llm_provider);
-        setModel(s.llm_model);
-        setStatus("ok");
-      }
-    }).catch(() => {});
-  }, []);
+
+    const savedProvider = localStorage.getItem("llm_provider");
+    const savedModel = localStorage.getItem("llm_model");
+    const savedApiKey = localStorage.getItem("llm_api_key");
+
+    if (savedProvider) setProvider(savedProvider);
+    if (savedModel) setModel(savedModel);
+    if (savedApiKey) setApiKey(savedApiKey);
+
+    setStatus("idle");
+
+    if (savedProvider && savedModel && savedApiKey) {
+    api.setLLM(savedProvider, savedModel, savedApiKey)
+      .then(() => setStatus("ok"))
+      .catch(() => setStatus("err"));
+  }
+}, []);
 
   async function save() {
     if (!provider || !model || !apiKey) {
@@ -32,6 +41,9 @@ export function LLMConfigCard() {
     setLoading(true);
     try {
       await api.setLLM(provider, model, apiKey);
+      localStorage.setItem("llm_provider", provider);
+      localStorage.setItem("llm_model", model);
+      localStorage.setItem("llm_api_key", apiKey);
       setStatus("ok");
       toast.success(`${provider}/${model} is live.`);
     } catch (e: any) {
@@ -48,8 +60,9 @@ export function LLMConfigCard() {
         <h3 className="font-mono text-xs uppercase tracking-wider flex items-center gap-2">
           <Cpu size={13} /> LLM
         </h3>
-        {status === "ok" && <span className="chip chip-ok"><Check size={11} /> Live</span>}
-        {status === "err" && <span className="chip chip-err"><X size={11} /> Failed</span>}
+          {status === "ok" && <span className="chip chip-ok">Live</span>}
+          {status === "err" && <span className="chip chip-err">Failed</span>}
+          {status === "idle" && <span className="chip">Not configured</span>}
       </header>
 
       <div>

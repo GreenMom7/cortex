@@ -33,16 +33,30 @@ export function Neo4jConfigCard({ onConnected }: { onConnected?: () => void }) {
 
   useEffect(() => {
     // Rehydrate UI from backend session (password is not exposed by design).
-    api.getStatus().then((s) => {
-      if (s.neo4j_connected) setStatus("ok");
-    }).catch(() => {});
-    api.neo4jStatus().then(() => {}).catch(() => {});
-  }, []);
+      const savedUri = localStorage.getItem("neo4j_uri");
+      const savedUser = localStorage.getItem("neo4j_username");
+      const savedPw = localStorage.getItem("neo4j_password");
+
+      if (savedUri) setUri(savedUri);
+      if (savedUser) setUser(savedUser);
+      if (savedPw) setPw(savedPw);
+
+  setStatus("idle");
+
+  if (savedUri && savedUser && savedPw) {
+    connect(savedUri, savedUser, savedPw);
+  }
+}, []);
 
   async function connect(uriArg = uri, userArg = user, pwArg = pw) {
     setLoading(true);
     try {
       await api.connectNeo4j(uriArg, userArg, pwArg);
+
+      localStorage.setItem("neo4j_uri", uriArg);
+      localStorage.setItem("neo4j_username", userArg);
+      localStorage.setItem("neo4j_password", pwArg);
+
       setStatus("ok");
       toast.success("Neo4j connected");
       onConnected?.();
@@ -82,8 +96,9 @@ export function Neo4jConfigCard({ onConnected }: { onConnected?: () => void }) {
         <h3 className="font-mono text-xs uppercase tracking-wider flex items-center gap-2">
           <Database size={13} /> Neo4j
         </h3>
-        {status === "ok" && <span className="chip chip-ok"><Check size={11} /> Connected</span>}
-        {status === "err" && <span className="chip chip-err"><X size={11} /> Failed</span>}
+          {status === "ok" && <span className="chip chip-ok">Connected</span>}
+          {status === "err" && <span className="chip chip-err">Failed</span>}
+          {status === "idle" && <span className="chip">Not connected</span>}
       </header>
 
       {/* Aura .env upload */}

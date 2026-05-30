@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Upload, Globe, Trash2, Check, X, Play } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
@@ -18,6 +18,38 @@ export function UploadCard() {
   const [clear, setClear] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+  const savedItems = localStorage.getItem("pipeline_sources");
+  const savedClear = localStorage.getItem("pipeline_clear");
+
+  if (savedItems) {
+    try {
+      setItems(JSON.parse(savedItems));
+      const parsed = JSON.parse(savedItems);
+
+      setItems(parsed);
+      if (parsed.length > 0) {
+        toast.info("Sources restored from browser storage. Re-upload files if the pipeline fails.");
+      }
+    } catch {
+      localStorage.removeItem("pipeline_sources");
+    }
+  }
+
+  if (savedClear) {
+    setClear(savedClear === "true");
+  }
+}, []);
+
+  useEffect(() => {
+    localStorage.setItem("pipeline_sources", JSON.stringify(items));
+  }, [items]);
+
+  useEffect(() => {
+    localStorage.setItem("pipeline_clear", String(clear));
+  }, [clear]);
+
+  
   async function handleFiles(files: FileList | null) {
     if (!files?.length) return;
     try {
