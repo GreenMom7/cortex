@@ -4,18 +4,22 @@ import { Send, MessageSquare, Code2, BrainCircuit } from "lucide-react";
 import { api, ChatResponse } from "@/lib/api";
 import { toast } from "sonner";
 
-type Turn = {
+export type Turn = {
   q: string;
   r: ChatResponse | null;
   loading: boolean;
 };
 
 export function ChatPanel({
+  turns,
+  setTurns,
   onHighlight,
 }: {
+  turns: Turn[];
+  setTurns: React.Dispatch<React.SetStateAction<Turn[]>>;
   onHighlight: (nodes: string[], edges: string[]) => void;
+
 }) {
-  const [turns, setTurns] = useState<Turn[]>([]);
   const [q, setQ] = useState("");
   const scroller = useRef<HTMLDivElement>(null);
 
