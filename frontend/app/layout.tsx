@@ -17,11 +17,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           <Toaster
             position="bottom-right"
+            richColors
             toastOptions={{
               style: {
-                background: "var(--bg-elev)",
-                color: "var(--fg)",
-                border: "1px solid var(--border)",
                 fontFamily: "JetBrains Mono, monospace",
                 fontSize: "0.78rem",
               },
