@@ -3,7 +3,7 @@
 Given a user question:
 1. Ask the LLM to generate a Cypher query (text-to-Cypher).
 2. Execute the Cypher and collect entities + relationships used.
-3. Format the retrieved subgraph as text context.
+3. Format the retrieved subgraph as natural-sentence context.
 4. Ask the LLM to produce a final natural-language answer.
 5. Return answer + cypher + retrieved node/edge ids + reasoning steps.
 
@@ -17,28 +17,64 @@ from typing import Any
 from app.services.llm_service import get_llm
 from app.services.neo4j_service import neo4j_service
 
-CYPHER_PROMPT = """You are a Neo4j Cypher expert.
-The graph schema is:
-- Nodes: (:Entity {{name: STRING}})
-- Relationships: directed, type names in UPPER_SNAKE_CASE
 
-Write ONE read-only Cypher query that retrieves the entities and relationships
-needed to answer the question. Rules:
-- Match relevant Entity nodes by name (use CONTAINS or =~ regex, case-insensitive).
-- Return n, r, m so we can identify nodes and edges.
-- No comments, no markdown — Cypher only.
+REWRITE_PROMPT = """You rewrite follow-up questions into self-contained questions.
+
+Given the conversation so far and a new question, output a single self-contained version of the new question:
+- Resolve pronouns ("her", "his", "they", "that", "those") to the specific entity mentioned in the prior turns.
+- Expand elliptical questions ("her title?" → "What is Kösem Sultan's title?", "and his children?" → "Who are Mehmed IV's children?").
+- If the new question is already self-contained, return it unchanged.
+- Output ONLY the rewritten question. No preface, no quotes, no explanation.
+
+Conversation so far:
+{history}
+
+New question: {question}
+
+Rewritten question:"""
+
+
+CYPHER_PROMPT = """You are a Neo4j Cypher expert. Generate ONE read-only Cypher query against a knowledge graph extracted from documents.
+
+Graph schema:
+- Every node carries the label :Entity, plus one of: :Person, :Place, :Organization, :Event, :Date, :Work, :Concept, :Object, :Other.
+- All nodes have a `name` property (the canonical surface form found in the source text).
+- Relationships are directed; type names are UPPER_SNAKE_CASE (e.g. REIGNED_FROM, FATHER_OF, LOCATED_IN).
+
+Rules:
+1. Match entities by name with a CASE-INSENSITIVE regex that tolerates the kinds of spelling variation common to documents translated or transliterated across languages, scripts, and historical periods. Be generous with matching — exact-string comparison will miss many real entities. Heuristics:
+   - Diacritics often vary or get dropped: `ş↔s`, `ü↔u`, `ç↔c`, `ñ↔n`, `é↔e`, `ı↔i`. Match with diacritic-insensitive intent (use `(?i)` and allow either form).
+   - Romanization differs across sources: vowels (`u/ou/oo`), consonants (`k/c/q`, `j/y/i`, `w/v`, `kh/ch/h`), and endings (`-ov/-off`, `-sky/-ski`) all swap. Broaden the regex accordingly.
+   - Cognate / equivalent names across languages refer to the same person or place. Treat them as the same when matching. Common families to be aware of (non-exhaustive — apply the same reasoning to any domain):
+       * Religious / classical: Muhammad/Mehmed/Mehmet/Mohammed, Ibrahim/Abraham, Yusuf/Joseph, Yahya/John, Solomon/Suleiman/Süleyman, Moses/Musa, Mary/Maryam/Miriam.
+       * Royal / European: Peter/Pyotr/Pierre, Catherine/Yekaterina/Katherine, William/Wilhelm/Guillaume, John/Juan/Giovanni/Ivan, Charles/Karl/Carlos, Elizabeth/Isabel.
+       * East Asian romanization: Pinyin vs Wade-Giles (Beijing/Peking, Mao Zedong/Mao Tse-tung, Tokyo/Tōkyō).
+       * Places: Constantinople/Istanbul, Persia/Iran, Burma/Myanmar, Bombay/Mumbai, Saint Petersburg/Petrograd/Leningrad.
+   - When a regnal number is involved (e.g. "Mehmed IV"), capture the variants plus the numeral: `(?i).*(mehmed|mehmet|muhammad|mohammed).*iv.*`.
+   - If you're unsure of variants, prefer a shorter stem in the regex (`mehm.*iv`) over an exact name.
+2. For "tell me about X" / single-subject questions, return the 1-hop neighborhood:
+   `MATCH (n:Entity)-[r]-(m:Entity) WHERE n.name =~ '(?i).*X.*' RETURN n, r, m LIMIT 80`
+3. For two-subject questions ("how is X related to Y"), use a shortest path up to 4 hops:
+   `MATCH p = shortestPath((a:Entity)-[*..4]-(b:Entity)) WHERE a.name =~ '...' AND b.name =~ '...' UNWIND relationships(p) AS r WITH p, r, startNode(r) AS n, endNode(r) AS m RETURN n, r, m`
+4. Always return `n, r, m` (a node, a relationship, another node) so we can extract them downstream.
+5. ALWAYS include a LIMIT (≤ 100).
+6. Output Cypher only — no markdown fences, no comments, no prose.
 
 Question: {question}
 Cypher:"""
 
-ANSWER_PROMPT = """You are answering using a knowledge graph.
-The context lists entities and their relationships as triples.
 
-Rules:
-- Use ONLY the context to answer.
-- Cite the entities involved.
-- If the context is empty, say so plainly.
-- Be concise (2-4 sentences).
+ANSWER_PROMPT = """You are a research assistant answering a question using a knowledge graph extracted from documents.
+
+You are given a list of facts, one per line, already converted to natural English sentences.
+
+Hard rules for your answer:
+1. Write natural prose — like a Wikipedia summary or a knowledgeable friend. NEVER use triple notation like `Subject -[RELATION]-> Object` or `(Subject, RELATION, Object)`. NEVER include UPPER_SNAKE_CASE relation names, arrows (`->`, `-[...]->`), or parenthetical citations of the source triples. Just write sentences.
+2. Be thorough. Cover every fact in the context that is relevant to the question. For a "tell me about X" question, write a full paragraph of 4-8 sentences minimum. Do not stop at the first 2-3 facts.
+3. The graph is the authoritative source for specific facts (names, dates, places, roles, kinships, events). You MAY use general knowledge from your training to add brief connective context that helps the prose flow (e.g. clarifying what an "Ottoman Empire" is in a clause), but do NOT introduce new specific facts (new dates, new names, new relationships) that aren't in the context. If you blend in background knowledge, keep it brief and clearly subordinate to the graph facts.
+4. Names may differ between question and context due to transliteration (e.g. user asks "Muhammad IV", context calls him "Mehmed IV"; "Suleyman" vs "Süleyman"; "Constantinople" vs "Istanbul"). Treat them as the same entity and answer normally.
+5. If the context is empty or doesn't address the question, say so plainly in one sentence.
+6. Do not preface your answer with phrases like "Based on the context" or "According to the graph". Just answer.
 
 Context:
 {context}
@@ -50,23 +86,89 @@ Answer:"""
 
 def _strip_cypher_fences(text: str) -> str:
     text = re.sub(r"^```(?:cypher)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE)
-    # Often the model adds preamble — grab the first MATCH... onward
     m = re.search(r"(MATCH|CALL|WITH|OPTIONAL MATCH)\b.*", text, re.IGNORECASE | re.DOTALL)
     return (m.group(0) if m else text).strip().rstrip(";")
 
 
-async def graphrag_answer(question: str) -> dict[str, Any]:
+def _humanize(rel: str) -> str:
+    """REIGNED_FROM -> 'reigned from'. WAS_NICKNAMED -> 'was nicknamed'."""
+    return rel.replace("_", " ").lower().strip()
+
+
+def _collapse_repetition(text: str, min_phrase_words: int = 4, max_repeats: int = 2) -> str:
+    """Detect and truncate degenerate-loop output.
+
+    LLMs (especially open-weight models at low temperature without a token cap)
+    occasionally fall into a "..., but also X, but also X, but also X..." loop.
+    If we see the same chunk repeated more than `max_repeats` times in a row
+    after splitting on a connective, cut the text at the start of the second
+    repeat and add an ellipsis.
+    """
+    # Split on commas and connective phrases that commonly mark repetition
+    parts = re.split(r"(?:,| but| and| also| or)\s+", text)
+    if len(parts) < max_repeats + 2:
+        return text
+
+    # Sliding check: same N-word chunk repeating
+    norm = [p.strip().lower() for p in parts]
+    for i in range(len(norm) - max_repeats):
+        head = norm[i]
+        if len(head.split()) < min_phrase_words:
+            continue
+        if all(norm[i + k] == head for k in range(1, max_repeats + 1)):
+            # Repetition detected starting at index i+1; cut just before it
+            keep = parts[: i + 1]
+            cleaned = (", ".join(p.strip() for p in keep if p.strip())).rstrip(",.;: ")
+            return cleaned + "."
+    return text
+
+
+def _format_history(history: list[dict] | None, max_turns: int = 4) -> str:
+    if not history:
+        return ""
+    recent = history[-max_turns:]
+    lines = []
+    for turn in recent:
+        q = (turn.get("question") or "").strip()
+        a = (turn.get("answer") or "").strip()
+        if q:
+            lines.append(f"User: {q}")
+        if a:
+            # Keep history compact — cap answer length so prompts stay small
+            if len(a) > 400:
+                a = a[:400] + "…"
+            lines.append(f"Assistant: {a}")
+    return "\n".join(lines)
+
+
+async def graphrag_answer(question: str, history: list[dict] | None = None) -> dict[str, Any]:
     reasoning: list[dict] = []
     llm = get_llm()
+    history_text = _format_history(history)
+
+    # Step 0: rewrite follow-up question into a self-contained one.
+    # Skip when there's no history or the question is already long & looks complete.
+    effective_question = question
+    if history_text:
+        rewrite_raw = llm.invoke(
+            REWRITE_PROMPT.format(history=history_text, question=question)
+        )
+        rewritten = (
+            rewrite_raw.content if hasattr(rewrite_raw, "content") else str(rewrite_raw)
+        ).strip().strip('"').strip("'")
+        # Defensive: if rewrite produced something empty/silly, fall back to original
+        if rewritten and len(rewritten) < 500:
+            effective_question = rewritten
+        reasoning.append({"step": "rewrite_question", "detail": effective_question})
 
     # Step 1: generate Cypher
-    cypher_raw = llm.invoke(CYPHER_PROMPT.format(question=question))
+    cypher_raw = llm.invoke(CYPHER_PROMPT.format(question=effective_question))
     cypher = _strip_cypher_fences(
         cypher_raw.content if hasattr(cypher_raw, "content") else str(cypher_raw)
     )
     reasoning.append({"step": "generate_cypher", "detail": cypher})
 
-    # Step 2: execute (read-only guard)
+    # Step 2: write-op guard
     if re.search(r"\b(CREATE|DELETE|SET|MERGE|REMOVE|DROP|DETACH)\b", cypher, re.I):
         return {
             "answer": "I refuse to run that query — it appears to modify the graph.",
@@ -79,25 +181,43 @@ async def graphrag_answer(question: str) -> dict[str, Any]:
         }
 
     try:
-        triples_context: list[str] = []
+        sentences: list[str] = []
+        seen_sentences: set[str] = set()
+        seen_solo_nodes: set[str] = set()
         node_ids: set[str] = set()
         edge_ids: set[str] = set()
 
         async with neo4j_service.driver.session() as sess:
             result = await sess.run(cypher)
             async for record in result:
-                values = list(record.values())
-                # Pull out nodes and relationships from arbitrary RETURN shape
-                line_parts = []
-                for v in values:
-                    if hasattr(v, "labels"):                       # node
-                        node_ids.add(v.element_id)
-                        line_parts.append(dict(v).get("name", "node"))
-                    elif hasattr(v, "type") and hasattr(v, "start_node"):  # relationship
+                # Pull nodes + relationships out of the record regardless of column order
+                rec_nodes: list = []
+                rec_rel = None
+                for v in record.values():
+                    if hasattr(v, "type") and hasattr(v, "start_node"):  # Relationship
+                        rec_rel = v
                         edge_ids.add(v.element_id)
-                        line_parts.append(f"-[{v.type}]->")
-                if line_parts:
-                    triples_context.append(" ".join(line_parts))
+                    elif hasattr(v, "labels"):  # Node
+                        rec_nodes.append(v)
+                        node_ids.add(v.element_id)
+
+                if rec_rel and len(rec_nodes) >= 2:
+                    # Use the relationship's start/end to get correct direction
+                    s_node = rec_rel.start_node
+                    o_node = rec_rel.end_node
+                    s_name = dict(s_node).get("name", "?")
+                    o_name = dict(o_node).get("name", "?")
+                    sentence = f"{s_name} {_humanize(rec_rel.type)} {o_name}."
+                    if sentence not in seen_sentences:
+                        seen_sentences.add(sentence)
+                        sentences.append(sentence)
+                else:
+                    # Standalone node — record its name so the LLM at least knows it was matched
+                    for n in rec_nodes:
+                        name = dict(n).get("name")
+                        if name and name not in seen_solo_nodes:
+                            seen_solo_nodes.add(name)
+                            sentences.append(f"{name} is in the graph.")
 
         reasoning.append({"step": "execute_cypher", "detail": f"{len(node_ids)} nodes, {len(edge_ids)} edges"})
     except Exception as e:
@@ -111,14 +231,22 @@ async def graphrag_answer(question: str) -> dict[str, Any]:
             "scores": {"retrieval": 0.0, "confidence": 0.0},
         }
 
-    context = "\n".join(triples_context) or "(no results)"
+    context = "\n".join(sentences) or "(no results)"
 
-    # Step 3: final answer
-    answer_resp = llm.invoke(ANSWER_PROMPT.format(context=context, question=question))
+    # Step 3: final answer — use the rewritten question so the answer addresses
+    # what the user actually meant, not the elliptical surface form.
+    answer_resp = llm.invoke(
+        ANSWER_PROMPT.format(context=context, question=effective_question)
+    )
     answer = answer_resp.content if hasattr(answer_resp, "content") else str(answer_resp)
+    # Belt-and-braces: scrub any triple notation the LLM still emitted
+    answer = re.sub(r"\s*-\[\s*[A-Z_]+\s*\]->\s*", " ", answer)
+    answer = re.sub(r"\([^()]*-\[[^()]*\]->[^()]*\)", "", answer)
+    answer = re.sub(r"[ \t]+", " ", answer).strip()
+    # Anti-loop guard: cut runaway repetition
+    answer = _collapse_repetition(answer)
     reasoning.append({"step": "synthesise_answer", "detail": f"{len(answer)} chars"})
 
-    # Crude scoring — purely indicative, not a benchmark
     retrieval_score = min(1.0, (len(node_ids) + len(edge_ids)) / 10)
     confidence = 0.0 if "no results" in context else min(1.0, 0.4 + retrieval_score * 0.6)
 

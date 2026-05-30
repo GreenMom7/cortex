@@ -28,8 +28,15 @@ export function ChatPanel({
     setTurns((prev) => [...prev, turn]);
     setTimeout(() => scroller.current?.scrollTo({ top: 1e9, behavior: "smooth" }), 50);
 
+    // Build conversation history from prior turns that produced an answer.
+    // Cap at the last 4 so the prompt stays small.
+    const history = turns
+      .filter((t) => t.r && t.r.answer)
+      .slice(-4)
+      .map((t) => ({ question: t.q, answer: t.r!.answer }));
+
     try {
-      const r = await api.chat(question);
+      const r = await api.chat(question, history);
       setTurns((prev) => prev.map((t, i) => (i === prev.length - 1 ? { ...t, r, loading: false } : t)));
       onHighlight(r.node_ids, r.edge_ids);
       setTimeout(() => scroller.current?.scrollTo({ top: 1e9, behavior: "smooth" }), 50);
