@@ -102,29 +102,49 @@ async def run_pipeline(sources: Iterable[str], clear_existing: bool = False) -> 
 
     # 4. Extract triples in parallel (LLM calls are I/O-bound)
     state.progress["stage"] = "extracting"
+    state.progress["chunks_failed"] = 0
     await _push("Extracting triples…")
     all_triples: list[dict] = []
+    failures: list[str] = []
 
-    def _work(text: str) -> list[dict]:
+    def _work(text: str) -> tuple[list[dict], str | None]:
         try:
-            return extract_from_chunk(text, llm)
-        except Exception:
-            return []
+            return extract_from_chunk(text, llm), None
+        except Exception as exc:
+            return [], f"{type(exc).__name__}: {exc}"
 
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    # Default to 4 workers — Groq free tier rate-limits aggressively at 8.
+    workers = int(getattr(state, "extraction_workers", 4) or 4)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
         futures = [loop.run_in_executor(pool, _work, c.page_content) for c in chunks]
         for i, fut in enumerate(asyncio.as_completed(futures), 1):
-            triples = await fut
+            triples, err = await fut
+            if err:
+                failures.append(err)
+                state.progress["chunks_failed"] = len(failures)
+                # Print so the user can see WHY chunks fail (rate limit, auth, etc.)
+                print(f"[pipeline] chunk {i} failed: {err}", flush=True)
             all_triples.extend(triples)
             state.progress["chunks_processed"] = i
             state.progress["triples_extracted"] = len(all_triples)
             if i % 2 == 0 or i == len(chunks):
-                await _push(f"Extracted {len(all_triples)} triples from {i}/{len(chunks)} chunks")
+                msg = f"Extracted {len(all_triples)} triples from {i}/{len(chunks)} chunks"
+                if failures:
+                    msg += f" ({len(failures)} failed)"
+                await _push(msg)
+
+    if failures:
+        # Surface a sample to the UI; full list went to backend log
+        sample = "; ".join(failures[:3])
+        await _push(
+            f"{len(failures)}/{len(chunks)} chunks failed during extraction. First errors: {sample}"
+        )
 
     # 5. Ingest into Neo4j
     state.progress["stage"] = "ingesting"
     await _push("Ingesting into Neo4j…")
     ingested = 0
+    ingest_failures = 0
     for t in all_triples:
         rel = t["relation"]
         s_label = sanitize_label(t.get("subject_type", "Other"))
@@ -143,7 +163,10 @@ async def run_pipeline(sources: Iterable[str], clear_existing: bool = False) -> 
             if ingested % 25 == 0:
                 state.progress["triples_ingested"] = ingested
                 await _push(f"Ingested {ingested}/{len(all_triples)}")
-        except Exception:
+        except Exception as exc:
+            ingest_failures += 1
+            if ingest_failures <= 5:
+                print(f"[pipeline] ingest failed for {t}: {exc}", flush=True)
             continue
 
     state.progress["triples_ingested"] = ingested

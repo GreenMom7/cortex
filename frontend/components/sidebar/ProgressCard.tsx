@@ -53,6 +53,12 @@ export function ProgressCard({ onDone }: { onDone?: () => void }) {
         <Metric label="percent" value={`${pct}%`} />
       </div>
 
+      {(p.chunks_failed ?? 0) > 0 && (
+        <p className="font-mono text-[0.7rem]" style={{ color: "var(--danger)" }}>
+          {p.chunks_failed} chunk(s) failed — see backend log for cause (likely LLM rate-limit).
+        </p>
+      )}
+
       {p.message && (
         <p className="font-mono text-[0.7rem] text-muted truncate">{p.message}</p>
       )}

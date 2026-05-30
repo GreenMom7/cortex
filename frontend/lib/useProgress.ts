@@ -6,6 +6,7 @@ export type Progress = {
   stage: "idle" | "loading" | "chunking" | "extracting" | "ingesting" | "done";
   chunks_total: number;
   chunks_processed: number;
+  chunks_failed?: number;
   triples_extracted: number;
   triples_ingested: number;
   message: string;
@@ -15,6 +16,7 @@ const initial: Progress = {
   stage: "idle",
   chunks_total: 0,
   chunks_processed: 0,
+  chunks_failed: 0,
   triples_extracted: 0,
   triples_ingested: 0,
   message: "",

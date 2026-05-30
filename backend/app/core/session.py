@@ -49,6 +49,7 @@ class SessionState:
         "stage": "idle",            # idle | loading | chunking | extracting | ingesting | done
         "chunks_total": 0,
         "chunks_processed": 0,
+        "chunks_failed": 0,
         "triples_extracted": 0,
         "triples_ingested": 0,
         "message": "",
