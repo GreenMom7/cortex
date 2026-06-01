@@ -289,9 +289,7 @@ Practical workflow:
 Things deliberately left out of the scaffold but easy to add:
 
 - **Undo** — `SessionState.history` already stores `before` snapshots; wire a button that POSTs them back.
-- **Schema view** — a small panel listing node labels and relationship types with counts. One Cypher query: `MATCH (n) RETURN labels(n) AS l, count(*) AS c`.
 - **Auto-suggest relationships** — when the user opens a node, ask the LLM "what other entities in this graph are likely related to X?" and offer one-click adds.
-- **Persistent sessions** — swap `SessionState` for Redis (keyed by user) so the page survives refreshes and supports multi-user.
 - **Versioned graphs** — each pipeline run gets a tag; the user can compare "before edits" vs "after edits" answer quality. This is exactly the benchmark the project deliverables call for.
 - **Cytoscape / sigma fallback** — if reagraph's WebGL gets shaky on very large graphs (>2k nodes), drop into a 2D Sigma renderer for big-graph mode.
 - **Cypher console** — a separate tab where power users type raw Cypher. The backend already supports it through `neo4j_service.run()`.
