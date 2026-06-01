@@ -1,6 +1,7 @@
 """Request/response schemas."""
 from __future__ import annotations
 
+
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -73,3 +74,18 @@ class StatusResponse(BaseModel):
 class GraphResponse(BaseModel):
     nodes: list[dict]
     edges: list[dict]
+
+
+class SchemaLabel(BaseModel):
+    label: str
+    count: int
+
+
+class SchemaRelType(BaseModel):
+    type: str
+    count: int
+
+
+class SchemaResponse(BaseModel):
+    node_labels: list[SchemaLabel]
+    rel_types: list[SchemaRelType]

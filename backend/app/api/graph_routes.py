@@ -11,6 +11,7 @@ from app.models.schemas import (
     MergeNodes,
     NodeUpdate,
     RelationUpdate,
+    SchemaResponse,
     StatusResponse,
 )
 from app.services.chat_service import graphrag_answer
@@ -22,6 +23,12 @@ router = APIRouter(prefix="/api", tags=["graph"])
 def _require_connected():
     if not state.neo4j_connected:
         raise HTTPException(400, "Neo4j not connected.")
+
+
+@router.get("/graph/schema", response_model=SchemaResponse)
+async def get_schema():
+    _require_connected()
+    return await neo4j_service.get_schema()
 
 
 @router.get("/graph", response_model=GraphResponse)

@@ -300,4 +300,18 @@ class Neo4jService:
                             before[0] if before else None, None)
 
 
+    async def get_schema(self) -> dict:
+        """Return node label counts and relationship type counts."""
+        label_rows = await self.run(
+            "MATCH (n) UNWIND labels(n) AS lbl RETURN lbl AS label, count(*) AS count ORDER BY count DESC"
+        )
+        rel_rows = await self.run(
+            "MATCH ()-[r]->() RETURN type(r) AS type, count(*) AS count ORDER BY count DESC"
+        )
+        return {
+            "node_labels": [{"label": r["label"], "count": r["count"]} for r in label_rows],
+            "rel_types": [{"type": r["type"], "count": r["count"]} for r in rel_rows],
+        }
+
+
 neo4j_service = Neo4jService()
