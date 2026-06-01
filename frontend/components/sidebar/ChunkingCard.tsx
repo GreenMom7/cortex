@@ -34,8 +34,8 @@ const EMBEDDING_OPTIONS = [
 ];
 
 export function ChunkingCard() {
-  const [size, setSize] = useState(670);
-  const [overlap, setOverlap] = useState(10);
+  const [size, setSize] = useState<number | "">(670);
+  const [overlap, setOverlap] = useState<number | "">(10);
   const [embedIdx, setEmbedIdx] = useState(0);
 
   useEffect(() => {
@@ -55,6 +55,10 @@ export function ChunkingCard() {
   }, []);
 
   async function save() {
+    if (size === "" || overlap === "") {
+      toast.error("Size and overlap are required");
+      return;
+    }
     try {
       await api.setChunking(size, overlap);
       await api.setEmbeddings(
@@ -84,7 +88,9 @@ export function ChunkingCard() {
             min={128}
             max={4096}
             value={size}
-            onChange={(e) => setSize(Number(e.target.value))}
+            onChange={(e) =>
+              setSize(e.target.value === "" ? "" : Number(e.target.value))
+            }
           />
         </div>
         <div>
@@ -93,9 +99,11 @@ export function ChunkingCard() {
             type="number"
             className="input"
             min={0}
-            max={size - 1}
+            max={typeof size === "number" ? size - 1 : undefined}
             value={overlap}
-            onChange={(e) => setOverlap(Number(e.target.value))}
+            onChange={(e) =>
+              setOverlap(e.target.value === "" ? "" : Number(e.target.value))
+            }
           />
         </div>
       </div>
