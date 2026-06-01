@@ -80,6 +80,16 @@ async def delete_relation(edge_id: str):
     return StatusResponse(ok=True, message=f"Relation {edge_id} deleted")
 
 
+@router.post("/history/{index}/undo")
+async def undo_change(index: int):
+    _require_connected()
+    try:
+        message = await neo4j_service.undo_change(index)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    return {"ok": True, "message": message}
+
+
 @router.get("/history")
 async def history(limit: int = 50):
     """Return recent change history (most recent first)."""

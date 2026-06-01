@@ -108,6 +108,8 @@ export const api = {
 
   // History
   getHistory: (limit = 50) => call<{ items: ChangeEntry[] }>(`/api/history?limit=${limit}`),
+  undoChange: (index: number) =>
+    call<{ ok: boolean; message: string }>(`/api/history/${index}/undo`, { method: "POST" }),
 
   // Chat
   chat: (question: string, history: { question: string; answer: string }[] = []) =>
