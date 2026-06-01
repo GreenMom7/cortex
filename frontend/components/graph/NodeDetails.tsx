@@ -12,18 +12,24 @@ type Props = {
   onClose: () => void;
 };
 
+type PropRow = { id: string; key: string; value: string };
+
 export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
-  const [props, setProps] = useState<Record<string, any>>({});
+  const [rows, setRows] = useState<PropRow[]>([]);
   const [label, setLabel] = useState("");
 
   useEffect(() => {
     if (node) {
-      setProps({ ...node.data });
+      setRows(
+        Object.entries(node.data).map(([k, v]) => ({
+          id: crypto.randomUUID(),
+          key: k,
+          value: String(v),
+        })),
+      );
       setLabel(node.labels[0] || "Entity");
     }
   }, [node]);
-
-  console.log(node);
 
   if (!node) {
     return (
@@ -39,6 +45,11 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
   const outgoing = edges.filter((e) => e.source === node.id);
 
   async function save() {
+    const props: Record<string, any> = {};
+    for (const r of rows) {
+      const k = r.key.trim();
+      if (k) props[k] = r.value;
+    }
     try {
       await api.updateNode(node!.id, props, label);
       toast.success("Node saved");
@@ -141,28 +152,39 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
         <div>
           <label className="label">Properties</label>
           <div className="space-y-2">
-            {Object.entries(props).map(([k, v]) => (
-              <div key={k} className="flex gap-1">
+            {rows.map((row) => (
+              <div key={row.id} className="flex gap-1">
                 <input
                   className="input !w-1/3"
-                  value={k}
-                  onChange={(e) => {
-                    const newProps: Record<string, any> = {};
-                    Object.entries(props).forEach(([oldK, oldV]) => {
-                      newProps[oldK === k ? e.target.value : oldK] = oldV;
-                    });
-                    setProps(newProps);
-                  }}
+                  value={row.key}
+                  onChange={(e) =>
+                    setRows(
+                      rows.map((r) =>
+                        r.id === row.id ? { ...r, key: e.target.value } : r,
+                      ),
+                    )
+                  }
                 />
                 <input
                   className="input !flex-1"
-                  value={String(v)}
-                  onChange={(e) => setProps({ ...props, [k]: e.target.value })}
+                  value={row.value}
+                  onChange={(e) =>
+                    setRows(
+                      rows.map((r) =>
+                        r.id === row.id ? { ...r, value: e.target.value } : r,
+                      ),
+                    )
+                  }
                 />
               </div>
             ))}
             <button
-              onClick={() => setProps({ ...props, [""]: "" })}
+              onClick={() =>
+                setRows([
+                  ...rows,
+                  { id: crypto.randomUUID(), key: "", value: "" },
+                ])
+              }
               className="btn btn-ghost !text-[0.7rem]"
             >
               <Plus size={12} /> Add property
