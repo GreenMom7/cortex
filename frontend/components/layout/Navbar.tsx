@@ -14,7 +14,7 @@ export function Navbar() {
         <span className="brand-mark" aria-hidden />
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-[1.05rem] font-semibold tracking-tight">
-            senak
+            cortex
           </span>
           <span className="font-mono text-[0.68rem] uppercase tracking-[0.18em] text-muted">
             /human-in-the-loop graphRAG
