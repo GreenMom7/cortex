@@ -6,6 +6,7 @@ import { GraphView } from "@/components/graph/GraphView";
 import { NodeDetails } from "@/components/graph/NodeDetails";
 import { ChatPanel , Turn } from "@/components/chat/ChatPanel";
 import { HistoryPanel } from "@/components/history/HistoryPanel";
+import { SchemaPanel } from "@/components/graph/SchemaPanel";
 import { useGraph } from "@/lib/useGraph";
 
 export default function Page() {
@@ -13,7 +14,7 @@ export default function Page() {
   const [selected, setSelected] = useState<string | null>(null);
   const [highlightNodes, setHN] = useState<string[]>([]);
   const [highlightEdges, setHE] = useState<string[]>([]);
-  const [rightTab, setRightTab] = useState<"chat" | "node" | "history">("chat");
+  const [rightTab, setRightTab] = useState<"chat" | "node" | "history" | "schema">("chat");
   const [historyBump, setHistoryBump] = useState(0);
   const [chatTurns, setChatTurns] = useState<Turn[]>([]);
 
@@ -67,7 +68,7 @@ export default function Page() {
         {/* RIGHT — tabbed pane */}
         <section className="flex flex-col gap-2 min-h-[420px]">
           <nav className="flex gap-1 panel p-1">
-            {(["chat", "node", "history"] as const).map((tab) => (
+            {(["chat", "node", "history", "schema"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setRightTab(tab)}
@@ -95,6 +96,7 @@ export default function Page() {
               />
             )}
             {rightTab === "history" && <HistoryPanel refreshKey={historyBump} />}
+            {rightTab === "schema" && <SchemaPanel refreshKey={historyBump} />}
           </div>
         </section>
       </main>

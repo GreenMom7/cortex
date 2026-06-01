@@ -103,6 +103,9 @@ export const api = {
   deleteRelation: (edge_id: string) =>
     call(`/api/graph/relations/${encodeURIComponent(edge_id)}`, { method: "DELETE" }),
 
+  // Schema
+  getSchema: () => call<SchemaResponse>("/api/graph/schema"),
+
   // History
   getHistory: (limit = 50) => call<{ items: ChangeEntry[] }>(`/api/history?limit=${limit}`),
 
@@ -135,6 +138,10 @@ export type ChangeEntry = {
   before: any;
   after: any;
   user: string;
+};
+export type SchemaResponse = {
+  node_labels: { label: string; count: number }[];
+  rel_types: { type: string; count: number }[];
 };
 export type ChatResponse = {
   answer: string;
