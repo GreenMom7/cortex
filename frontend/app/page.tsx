@@ -95,7 +95,7 @@ export default function Page() {
                 onClose={() => setSelected(null)}
               />
             )}
-            {rightTab === "history" && <HistoryPanel refreshKey={historyBump} />}
+            {rightTab === "history" && <HistoryPanel refreshKey={historyBump} onUndo={handleGraphRefresh} />}
             {rightTab === "schema" && <SchemaPanel refreshKey={historyBump} />}
           </div>
         </section>
