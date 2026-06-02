@@ -12,10 +12,27 @@ The frontend uses node_ids / edge_ids to highlight the graph in green.
 from __future__ import annotations
 
 import re
+import logging
 from typing import Any
+
+# New imports for local semantic scoring
+from sentence_transformers import SentenceTransformer, util
 
 from app.services.llm_service import get_llm
 from app.services.neo4j_service import neo4j_service
+
+log = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Local Semantic Scorer Initialization
+# ---------------------------------------------------------------------------
+# We use the same model your system uses as a zero-cost fallback. 
+# Loaded once globally to prevent latency on every request.
+try:
+    SIMILARITY_MODEL = SentenceTransformer("BAAI/bge-base-en-v1.5")
+except Exception as e:
+    log.error("Failed to load local embedding model for scoring: %s", e)
+    SIMILARITY_MODEL = None
 
 
 REWRITE_PROMPT = """You rewrite follow-up questions into self-contained questions.
@@ -247,8 +264,31 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
     answer = _collapse_repetition(answer)
     reasoning.append({"step": "synthesise_answer", "detail": f"{len(answer)} chars"})
 
-    retrieval_score = min(1.0, (len(node_ids) + len(edge_ids)) / 10)
-    confidence = 0.0 if "no results" in context else min(1.0, 0.4 + retrieval_score * 0.6)
+    # ---------------------------------------------------------------------------
+    # Step 4: Semantic Local Scoring (BERTScore-style)
+    # ---------------------------------------------------------------------------
+    retrieval_score = 0.0
+    confidence_score = 0.0
+
+    if SIMILARITY_MODEL and "no results" not in context.lower() and answer.strip():
+        # Compute embeddings for Question, Answer, and Context
+        # Retrieval Score: Semantic similarity between Question and Context
+        # Confidence Score: Semantic similarity between Context and Answer
+        embeddings = SIMILARITY_MODEL.encode([effective_question, answer, context], convert_to_tensor=True)
+        
+        # Calculate Cosine Similarity (normalized to 0.0 - 1.0)
+        q_sim = util.cos_sim(embeddings[0], embeddings[2]).item()
+        a_sim = util.cos_sim(embeddings[1], embeddings[2]).item()
+        
+        retrieval_score = max(0.0, min(1.0, q_sim))
+        # We add a small baseline for confidence because answers contain natural
+        # connective language that isn't in the raw context facts.
+        confidence_score = max(0.0, min(1.0, a_sim + 0.1))
+
+    reasoning.append({
+        "step": "local_semantic_evaluation", 
+        "detail": f"retrieval={retrieval_score:.2f}, confidence={confidence_score:.2f}"
+    })
 
     return {
         "answer": answer.strip(),
@@ -257,5 +297,5 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
         "edge_ids": list(edge_ids),
         "context": context,
         "reasoning": reasoning,
-        "scores": {"retrieval": round(retrieval_score, 2), "confidence": round(confidence, 2)},
+        "scores": {"retrieval": round(retrieval_score, 2), "confidence": round(confidence_score, 2)},
     }
