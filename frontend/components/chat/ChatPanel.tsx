@@ -111,10 +111,25 @@ export function ChatPanel({
                 </details>
 
                 {/* Scores */}
-                <div className="flex gap-2">
-                  <ScorePill label="retrieval" value={t.r.scores.retrieval} />
-                  <ScorePill label="confidence" value={t.r.scores.confidence} />
-                  <span className="chip">{t.r.node_ids.length} nodes lit</span>
+                <div className="flex gap-2 items-center">
+                  {/* Retrieval Score */}
+                  <div className="group relative">
+                    <ScorePill label="retrieval" value={t.r.scores.retrieval} />
+                    <div className="absolute bottom-full left-0 mb-1 hidden w-48 rounded bg-gray-900 p-2 text-xs text-white group-hover:block z-50">
+                      Measures how well the retrieved facts match your question.
+                    </div>
+                  </div>
+                  {/* Confidence Score */}
+                  <div className="group relative">
+                    <ScorePill label="confidence" value={t.r.scores.confidence} />
+                    <div className="absolute bottom-full left-0 mb-1 hidden w-48 rounded bg-gray-900 p-2 text-xs text-white group-hover:block z-50">
+                      Measures how much of the final answer is based directly on the retrieved facts.
+                    </div>
+                  </div>
+                  
+                  <div className="group relative">
+                    <span className="chip">{t.r.node_ids.length} nodes lit</span>
+                  </div>
                 </div>
               </div>
             )}
