@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Iterable
 
@@ -108,30 +109,71 @@ async def run_pipeline(sources: Iterable[str], clear_existing: bool = False) -> 
     failures: list[str] = []
 
     def _work(text: str) -> tuple[list[dict], str | None]:
-        try:
-            return extract_from_chunk(text, llm), None
-        except Exception as exc:
-            return [], f"{type(exc).__name__}: {exc}"
+        max_retries = 5
+        base_delay = 7.0  # Wait 7 seconds on the first failure (covers the 6.53s request)
+
+        for attempt in range(max_retries):
+            try:
+                # If successful, return the triples and exit the retry loop
+                return extract_from_chunk(text, llm), None
+            except Exception as exc:
+                err_msg = str(exc)
+                
+                # Check if the error is a rate limit (429)
+                is_rate_limit = any(keyword in err_msg.lower() for keyword in ["429", "rate limit", "too many requests"])
+                
+                if is_rate_limit and attempt < max_retries - 1:
+                    # Exponential backoff: 7s, 14s, 28s...
+                    sleep_time = base_delay * (2 ** attempt)
+                    print(f"[pipeline] Rate limit hit. Worker pausing for {sleep_time}s... (Attempt {attempt+1}/{max_retries})", flush=True)
+                    
+                    # time.sleep is safe here because _work runs inside a ThreadPoolExecutor 
+                    # and won't block the main asyncio event loop.
+                    time.sleep(sleep_time)
+                    continue  # Try again
+                
+                # If it's not a rate limit error, or we ran out of retries, fail permanently
+                return [], f"{type(exc).__name__}: {exc}"
 
     # Default to 4 workers — Groq free tier rate-limits aggressively at 8.
     workers = int(getattr(state, "extraction_workers", 4) or 4)
+    batch_size = workers  # Process one full worker queue at a time
+    batch_delay = getattr(state, "extraction_delay", 2.0)  # 2-second pause between batches
+    
+    processed_count = 0
+
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [loop.run_in_executor(pool, _work, c.page_content) for c in chunks]
-        for i, fut in enumerate(asyncio.as_completed(futures), 1):
-            triples, err = await fut
-            if err:
-                failures.append(err)
-                state.progress["chunks_failed"] = len(failures)
-                # Print so the user can see WHY chunks fail (rate limit, auth, etc.)
-                print(f"[pipeline] chunk {i} failed: {err}", flush=True)
-            all_triples.extend(triples)
-            state.progress["chunks_processed"] = i
-            state.progress["triples_extracted"] = len(all_triples)
-            if i % 2 == 0 or i == len(chunks):
-                msg = f"Extracted {len(all_triples)} triples from {i}/{len(chunks)} chunks"
-                if failures:
-                    msg += f" ({len(failures)} failed)"
-                await _push(msg)
+        # Loop through chunks in batches
+        for i in range(0, len(chunks), batch_size):
+            batch = chunks[i:i + batch_size]
+            
+            # Submit only the current batch to the executor
+            futures = [loop.run_in_executor(pool, _work, c.page_content) for c in batch]
+            
+            # Await completion of the current batch, updating progress as they finish
+            for fut in asyncio.as_completed(futures):
+                triples, err = await fut
+                processed_count += 1
+                
+                if err:
+                    failures.append(err)
+                    state.progress["chunks_failed"] = len(failures)
+                    print(f"[pipeline] chunk {processed_count} failed: {err}", flush=True)
+                
+                all_triples.extend(triples)
+                state.progress["chunks_processed"] = processed_count
+                state.progress["triples_extracted"] = len(all_triples)
+                
+                # Push SSE updates
+                if processed_count % 2 == 0 or processed_count == len(chunks):
+                    msg = f"Extracted {len(all_triples)} triples from {processed_count}/{len(chunks)} chunks"
+                    if failures:
+                        msg += f" ({len(failures)} failed)"
+                    await _push(msg)
+            
+            # Apply rate-limit delay before submitting the next batch (skip on the last batch)
+            if i + batch_size < len(chunks):
+                await asyncio.sleep(batch_delay)
 
     if failures:
         # Surface a sample to the UI; full list went to backend log
