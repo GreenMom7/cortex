@@ -42,23 +42,36 @@ Graph schema:
 - Relationships are directed; type names are UPPER_SNAKE_CASE (e.g. REIGNED_FROM, FATHER_OF, LOCATED_IN).
 
 Rules:
-1. Match entities by name with a CASE-INSENSITIVE regex that tolerates the kinds of spelling variation common to documents translated or transliterated across languages, scripts, and historical periods. Be generous with matching — exact-string comparison will miss many real entities. Heuristics:
-   - Diacritics often vary or get dropped: `ş↔s`, `ü↔u`, `ç↔c`, `ñ↔n`, `é↔e`, `ı↔i`. Match with diacritic-insensitive intent (use `(?i)` and allow either form).
-   - Romanization differs across sources: vowels (`u/ou/oo`), consonants (`k/c/q`, `j/y/i`, `w/v`, `kh/ch/h`), and endings (`-ov/-off`, `-sky/-ski`) all swap. Broaden the regex accordingly.
-   - Cognate / equivalent names across languages refer to the same person or place. Treat them as the same when matching. Common families to be aware of (non-exhaustive — apply the same reasoning to any domain):
-       * Religious / classical: Muhammad/Mehmed/Mehmet/Mohammed, Ibrahim/Abraham, Yusuf/Joseph, Yahya/John, Solomon/Suleiman/Süleyman, Moses/Musa, Mary/Maryam/Miriam.
-       * Royal / European: Peter/Pyotr/Pierre, Catherine/Yekaterina/Katherine, William/Wilhelm/Guillaume, John/Juan/Giovanni/Ivan, Charles/Karl/Carlos, Elizabeth/Isabel.
-       * East Asian romanization: Pinyin vs Wade-Giles (Beijing/Peking, Mao Zedong/Mao Tse-tung, Tokyo/Tōkyō).
-       * Places: Constantinople/Istanbul, Persia/Iran, Burma/Myanmar, Bombay/Mumbai, Saint Petersburg/Petrograd/Leningrad.
-   - When a regnal number is involved (e.g. "Mehmed IV"), capture the variants plus the numeral: `(?i).*(mehmed|mehmet|muhammad|mohammed).*iv.*`.
-   - If you're unsure of variants, prefer a shorter stem in the regex (`mehm.*iv`) over an exact name.
-2. For "tell me about X" / single-subject questions, return the 1-hop neighborhood:
-   `MATCH (n:Entity)-[r]-(m:Entity) WHERE n.name =~ '(?i).*X.*' RETURN n, r, m LIMIT 80`
-3. For two-subject questions ("how is X related to Y"), use a shortest path up to 4 hops:
-   `MATCH p = shortestPath((a:Entity)-[*..4]-(b:Entity)) WHERE a.name =~ '...' AND b.name =~ '...' UNWIND relationships(p) AS r WITH p, r, startNode(r) AS n, endNode(r) AS m RETURN n, r, m`
-4. Always return `n, r, m` (a node, a relationship, another node) so we can extract them downstream.
-5. ALWAYS include a LIMIT (≤ 100).
-6. Output Cypher only — no markdown fences, no comments, no prose.
+1. Match entities by name with a CASE-INSENSITIVE regex that tolerates spelling variation.
+   Use `(?i)` and allow either form for diacritics and romanization variants.
+   Common name variants: Muhammad/Mehmed/Mohammed, Peter/Pyotr/Pierre,
+   Constantinople/Istanbul, Suleiman/Süleyman.
+   When unsure, prefer a short stem: `mehm.*iv` over an exact name.
+
+2. For single-subject questions ("tell me about X"), return the 1-hop neighborhood:
+   MATCH (n:Entity)-[r]-(m:Entity) WHERE n.name =~ '(?i).*X.*' RETURN n, r, m LIMIT 80
+
+3. For two-subject questions ("how is X related to Y" or questions mentioning two entities),
+   use shortestPath with UNWIND OUTSIDE the path:
+   MATCH p = shortestPath((a:Entity)-[*..4]-(b:Entity))
+   WHERE a.name =~ '(?i).*X.*' AND b.name =~ '(?i).*Y.*'
+   UNWIND relationships(p) AS r
+   WITH r, startNode(r) AS n, endNode(r) AS m
+   RETURN n, r, m LIMIT 100
+
+4. For questions with 3 or more subjects, use separate MATCH clauses joined by WITH:
+   MATCH (a:Entity)-[r1]-(b:Entity)
+   WHERE a.name =~ '(?i).*X.*' AND b.name =~ '(?i).*Y.*'
+   WITH a, r1, b
+   MATCH (c:Entity)-[r2]-(d:Entity)
+   WHERE c.name =~ '(?i).*Z.*'
+   RETURN a, r1, b, c, r2, d LIMIT 100
+
+5. NEVER nest ANY() inside relationships() or nodes() of a path.
+6. NEVER add extra WITH clauses inside a shortestPath MATCH.
+7. Always return node and relationship variables so they can be extracted downstream.
+8. Always include LIMIT (≤ 100).
+9. Output Cypher only — no markdown fences, no comments, no prose.
 
 Question: {question}
 Cypher:"""
