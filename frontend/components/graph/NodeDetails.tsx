@@ -81,7 +81,10 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
     if (!confirm(`Delete node "${node!.label}"?`)) return;
     try {
       await api.deleteNode(node!.id);
-      toast.success("Node deleted");
+      toast("Node deleted", {
+        ...themedToast,
+        icon: <Trash2 size={13} style={{ color: "var(--danger)" }} />,
+      });
       onChange();
       onClose();
     } catch (e: any) {
@@ -95,7 +98,10 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
     if (!targetId) return;
     try {
       await api.mergeNodes(node!.id, targetId);
-      toast.success("Merged");
+      toast("Nodes merged", {
+        ...themedToast,
+        icon: <GitMerge size={13} style={{ color: "var(--accent)" }} />,
+      });
       onChange();
       onClose();
     } catch (e: any) {
