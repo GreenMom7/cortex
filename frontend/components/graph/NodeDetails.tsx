@@ -1,5 +1,14 @@
 "use client";
-import { Trash2, Save, GitMerge, Plus, Copy, Pencil, Check, X } from "lucide-react";
+import {
+  Trash2,
+  Save,
+  GitMerge,
+  Plus,
+  Copy,
+  Pencil,
+  Check,
+  X,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, GraphNode, GraphEdge } from "@/lib/api";
 import { toast } from "sonner";
@@ -13,6 +22,16 @@ type Props = {
 };
 
 type PropRow = { id: string; key: string; value: string };
+
+const themedToast = {
+  duration: 2500,
+  style: {
+    background: "var(--bg-elev)",
+    border: "1px solid var(--border)",
+    color: "var(--fg)",
+    boxShadow: "none",
+  },
+};
 
 export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
   const [rows, setRows] = useState<PropRow[]>([]);
@@ -293,9 +312,12 @@ function RelationRow({
     }
   }
 
-  const arrow = direction === "out"
-    ? <span className="text-accent">→</span>
-    : <span className="text-muted">←</span>;
+  const arrow =
+    direction === "out" ? (
+      <span className="text-accent">→</span>
+    ) : (
+      <span className="text-muted">←</span>
+    );
 
   return (
     <div className="flex items-center gap-1 text-muted">
@@ -308,7 +330,10 @@ function RelationRow({
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === "Enter") save();
-            if (e.key === "Escape") { setDraft(edge.label); setEditing(false); }
+            if (e.key === "Escape") {
+              setDraft(edge.label);
+              setEditing(false);
+            }
           }}
           disabled={busy}
         />
@@ -330,7 +355,10 @@ function RelationRow({
             className="btn btn-ghost !p-1"
             title="Cancel"
             disabled={busy}
-            onClick={() => { setDraft(edge.label); setEditing(false); }}
+            onClick={() => {
+              setDraft(edge.label);
+              setEditing(false);
+            }}
           >
             <X size={11} />
           </button>
