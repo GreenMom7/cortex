@@ -251,15 +251,66 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
 
         reasoning.append({"step": "execute_cypher", "detail": f"{len(node_ids)} nodes, {len(edge_ids)} edges"})
     except Exception as e:
-        return {
-            "answer": f"Cypher execution failed: {e}",
-            "cypher": cypher,
-            "node_ids": [],
-            "edge_ids": [],
-            "context": "",
-            "reasoning": reasoning + [{"step": "error", "detail": str(e)}],
-            "scores": {"retrieval": 0.0, "confidence": 0.0},
-        }
+        # ── Fallback: retry with a simpler keyword search ──────────
+        log.warning("Cypher failed: %s — retrying with fallback.", e)
+
+        # Extract keywords from the question (words longer than 4 chars)
+        keywords = [
+            w.strip('?,."\'()').lower()
+            for w in effective_question.split()
+            if len(w.strip('?,."\'()')) > 4
+        ]
+
+        fallback_cypher = (
+            "MATCH (n:Entity)-[r]-(m:Entity) WHERE "
+            + " OR ".join(
+                f"toLower(n.name) CONTAINS '{kw}'"
+                for kw in keywords[:5]  # bounded — rule 2
+            )
+            + " RETURN n, r, m LIMIT 50"
+        )
+
+        reasoning.append({
+            "step": "fallback_cypher",
+            "detail": fallback_cypher
+        })
+
+        try:
+            async with neo4j_service.driver.session() as sess:
+                result = await sess.run(fallback_cypher)
+                async for record in result:
+                    rec_nodes: list = []
+                    rec_rel = None
+                    for v in record.values():
+                        if hasattr(v, "type") and hasattr(v, "start_node"):
+                            rec_rel = v
+                            edge_ids.add(v.element_id)
+                        elif hasattr(v, "labels"):
+                            rec_nodes.append(v)
+                            node_ids.add(v.element_id)
+                    if rec_rel and len(rec_nodes) >= 2:
+                        s_name = dict(rec_rel.start_node).get("name", "?")
+                        o_name = dict(rec_rel.end_node).get("name", "?")
+                        sentence = f"{s_name} {_humanize(rec_rel.type)} {o_name}."
+                        if sentence not in seen_sentences:
+                            seen_sentences.add(sentence)
+                            sentences.append(sentence)
+
+            reasoning.append({
+                "step": "execute_cypher",
+                "detail": f"{len(node_ids)} nodes, {len(edge_ids)} edges (fallback)"
+            })
+
+        except Exception as e2:
+            return {
+                "answer": "The graph could not be queried. Please try rephrasing your question.",
+                "cypher": fallback_cypher,
+                "node_ids": [],
+                "edge_ids": [],
+                "context": "",
+                "reasoning": reasoning + [{"step": "error", "detail": str(e2)}],
+                "scores": {"retrieval": 0.0, "confidence": 0.0},
+            }
 
     context = "\n".join(sentences) or "(no results)"
 
