@@ -32,6 +32,7 @@ export const api = {
     neo4j_connected: boolean;
     llm_provider: string;
     llm_model: string;
+    llm_base_url: string;
     embedding_provider: string;
     embedding_model: string;
     chunk_size: number;
