@@ -14,9 +14,13 @@ class Neo4jCredentials(BaseModel):
 
 
 class LLMConfig(BaseModel):
-    provider: str = Field(..., description="openai | gemini | nvidia | groq | anthropic")
+    provider: str = Field(
+        ...,
+        description="openai | gemini | nvidia | groq | anthropic | custom"
+    )
     model: str
     api_key: str
+    base_url: str | None = None
 
 
 class EmbeddingConfig(BaseModel):
