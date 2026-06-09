@@ -56,6 +56,7 @@ def get_llm(provider: str | None = None, model: str | None = None, api_key: str 
     provider = (provider or state.llm_provider).lower()
     model = model or state.llm_model
     api_key = api_key or state.llm_api_key
+    base_url = state.llm_base_url
 
     if not provider or not model:
         raise ValueError("LLM provider/model not configured.")
@@ -94,7 +95,19 @@ def get_llm(provider: str | None = None, model: str | None = None, api_key: str 
             model_name=model, groq_api_key=api_key,
             temperature=0.2, max_tokens=2048, frequency_penalty=0.4,
         )
-
+    if provider == "custom":
+        if not base_url:
+            raise ValueError("Custom provider requires a base URL.")
+    
+        from langchain_openai import ChatOpenAI
+        return ChatOpenAI(
+            model=model,
+            api_key=api_key,
+            base_url=base_url,
+            temperature=0.2,
+            max_tokens=2048,
+            frequency_penalty=0.4,
+        )
     raise ValueError(f"Unknown LLM provider: {provider}")
 
 
