@@ -32,9 +32,10 @@ class SessionState:
     neo4j_connected: bool = False
 
     # LLM config
-    llm_provider: str = ""        # openai | gemini | nvidia | groq | anthropic
+    llm_provider: str = ""        # openai | gemini | nvidia | groq | anthropic | custom
     llm_model: str = ""
     llm_api_key: str = ""
+    llm_base_url: str = ""
 
     # Embedding config
     embedding_provider: str = "sentence-transformers"

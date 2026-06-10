@@ -32,6 +32,7 @@ export const api = {
     neo4j_connected: boolean;
     llm_provider: string;
     llm_model: string;
+    llm_base_url: string;
     embedding_provider: string;
     embedding_model: string;
     chunk_size: number;
@@ -45,10 +46,20 @@ export const api = {
     triples_ingested: number;
     message: string;
   }>("/api/pipeline/progress/snapshot"),
-  setLLM: (provider: string, model: string, api_key: string) =>
+  setLLM: (
+    provider: string,
+    model: string,
+    api_key: string,
+    base_url?: string
+  ) =>
     call<{ ok: boolean; message: string }>("/api/config/llm", {
       method: "POST",
-      body: JSON.stringify({ provider, model, api_key }),
+      body: JSON.stringify({
+        provider,
+        model,
+        api_key,
+        base_url,
+      }),
     }),
   setEmbeddings: (provider: string, model: string) =>
     call("/api/config/embeddings", {
