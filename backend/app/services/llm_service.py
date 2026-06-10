@@ -36,7 +36,6 @@ MODEL_CATALOG: dict[str, list[str]] = {
         "llama-3.1-8b-instant",
         "openai/gpt-oss-20b",
         "qwen/qwen3-32b",
-        "mixtral-8x7b-32768",
     ],
 }
 
