@@ -1,12 +1,11 @@
 "use client";
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import type { GraphCanvasRef, GraphEdge, GraphNode } from "reagraph";
-import { Maximize2, Minimize2, RotateCw, ZoomIn, ZoomOut } from "lucide-react";
+import { Layers, Maximize2, Minimize2, RotateCw, ZoomIn, ZoomOut } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import type { GraphEdge as MyEdge, GraphNode as MyNode } from "@/lib/api";
 
-// reagraph uses WebGL; must be client-only
 const GraphCanvas = dynamic(() => import("reagraph").then((m) => m.GraphCanvas), { ssr: false });
 
 type Props = {
@@ -16,11 +15,10 @@ type Props = {
   highlightEdges?: string[];
   onSelectNode?: (id: string | null) => void;
   selectedNode?: string | null;
+  layers: "entity" | "all";
+  onLayersChange: (layers: "entity" | "all") => void;
 };
 
-// Per-class palette. Picked for distinguishability on both backgrounds.
-// "Entity" is the catch-all legacy label every node also carries; the picker
-// below ignores it and prefers the more specific type.
 const CLASS_COLORS: Record<string, string> = {
   Person:       "#e89f8e",
   Place:        "#7fa6d6",
@@ -33,7 +31,26 @@ const CLASS_COLORS: Record<string, string> = {
   Other:        "#b8b1a0",
   Entity:       "#b8b1a0",
 };
+
+const LAYER_COLORS: Record<string, string> = {
+  document: "#4a90d9",
+  chunk:    "#8b8b8b",
+};
+
+const LAYER_SIZES: Record<string, number> = {
+  document: 22,
+  chunk:    8,
+  entity:   14,
+};
+
 const FALLBACK_COLOR = "#b8b1a0";
+
+function getLayer(labels: string[] | undefined): string {
+  if (!labels) return "entity";
+  if (labels.includes("Document")) return "document";
+  if (labels.includes("Chunk")) return "chunk";
+  return "entity";
+}
 
 function pickClass(labels: string[] | undefined): string {
   if (!labels?.length) return "Entity";
@@ -41,43 +58,78 @@ function pickClass(labels: string[] | undefined): string {
   return specific || labels[0];
 }
 
+function getNodeColor(labels: string[] | undefined): string {
+  const layer = getLayer(labels);
+  if (layer !== "entity") return LAYER_COLORS[layer] || FALLBACK_COLOR;
+  const cls = pickClass(labels);
+  return CLASS_COLORS[cls] || FALLBACK_COLOR;
+}
+
 export function GraphView({
   nodes, edges, highlightNodes = [], highlightEdges = [],
-  onSelectNode, selectedNode,
+  onSelectNode, selectedNode, layers, onLayersChange,
 }: Props) {
   const { theme } = useTheme();
   const ref = useRef<GraphCanvasRef | null>(null);
+  const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
 
-  // Build the set of classes actually present, for the legend
+  const toggleLayer = (layer: string) => {
+    setHiddenLayers((prev) => {
+      const next = new Set(prev);
+      if (next.has(layer)) next.delete(layer);
+      else next.add(layer);
+      return next;
+    });
+  };
+
+  const visibleNodes = useMemo(() => {
+    if (hiddenLayers.size === 0) return nodes;
+    return nodes.filter((n) => !hiddenLayers.has(getLayer(n.labels)));
+  }, [nodes, hiddenLayers]);
+
+  const visibleNodeIds = useMemo(() => new Set(visibleNodes.map((n) => n.id)), [visibleNodes]);
+
+  const visibleEdges = useMemo(() => {
+    if (hiddenLayers.size === 0) return edges;
+    return edges.filter((e) => visibleNodeIds.has(e.source) && visibleNodeIds.has(e.target));
+  }, [edges, visibleNodeIds, hiddenLayers]);
+
   const classesPresent = useMemo(() => {
     const set = new Set<string>();
-    for (const n of nodes) set.add(pickClass(n.labels));
+    for (const n of visibleNodes) {
+      if (getLayer(n.labels) === "entity") set.add(pickClass(n.labels));
+    }
     return Array.from(set).sort();
+  }, [visibleNodes]);
+
+  const layersPresent = useMemo(() => {
+    const set = new Set<string>();
+    for (const n of nodes) set.add(getLayer(n.labels));
+    return Array.from(set);
   }, [nodes]);
 
   const rgNodes: GraphNode[] = useMemo(
     () =>
-      nodes.map((n) => {
+      visibleNodes.map((n) => {
         const isHi = highlightNodes.includes(n.id);
         const isSel = selectedNode === n.id;
-        const cls = pickClass(n.labels);
-        const base = CLASS_COLORS[cls] || FALLBACK_COLOR;
+        const layer = getLayer(n.labels);
+        const base = getNodeColor(n.labels);
+        const size = LAYER_SIZES[layer] || 14;
         return {
           id: n.id,
           label: n.label,
           fill: isSel ? "#1e9352" : isHi ? "#74cf94" : base,
-          data: { ...n.data, _class: cls },
-          // Node size in reagraph is in 3D units, not px. ~14 reads as a
-          // proper bubble with the label sitting on top of it.
-          size: isSel || isHi ? 18 : 14,
+          data: { ...n.data, _class: pickClass(n.labels), _layer: layer },
+          size: isSel || isHi ? size + 4 : size,
         } satisfies GraphNode;
       }),
-    [nodes, highlightNodes, selectedNode]
+    [visibleNodes, highlightNodes, selectedNode]
   );
 
   const rgEdges: GraphEdge[] = useMemo(
     () =>
-      edges.map((e) => {
+      visibleEdges.map((e) => {
         const isHi = highlightEdges.includes(e.id);
         return {
           id: e.id,
@@ -88,7 +140,7 @@ export function GraphView({
           fill: isHi ? "#1e9352" : theme === "dark" ? "#5a635c" : "#7a847e",
         } satisfies GraphEdge;
       }),
-    [edges, highlightEdges, theme]
+    [visibleEdges, highlightEdges, theme]
   );
 
   const themeObj = useMemo(
@@ -117,7 +169,6 @@ export function GraphView({
             lasso: { border: "#74cf94", background: "rgba(116, 207, 148, 0.15)" },
           }
         : {
-            // Soft warm-paper background so dark edges + labels read clearly
             canvas: { background: "#ecefe9" },
             node: {
               fill: "#eef0ef", activeFill: "#1e9352",
@@ -160,19 +211,58 @@ export function GraphView({
       />
 
       {/* Legend — top-left */}
-      {classesPresent.length > 1 && (
-        <div className="absolute top-3 left-3 panel p-2 space-y-1 font-mono text-[0.65rem]">
-          {classesPresent.map((c) => (
-            <div key={c} className="flex items-center gap-1.5">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-full"
-                style={{ background: CLASS_COLORS[c] || FALLBACK_COLOR }}
-              />
-              <span>{c}</span>
-            </div>
-          ))}
+      <div className="absolute top-3 left-3 panel p-2 space-y-2 font-mono text-[0.65rem]">
+        {/* Layer toggle */}
+        <div className="flex items-center gap-1.5 pb-1 border-b border-[var(--border)]">
+          <button
+            onClick={() => onLayersChange(layers === "all" ? "entity" : "all")}
+            className="btn btn-ghost !p-1"
+            title={layers === "all" ? "Show entities only" : "Show all layers"}
+          >
+            <Layers size={12} />
+          </button>
+          <span className="text-muted">{layers === "all" ? "All layers" : "Entities"}</span>
         </div>
-      )}
+
+        {/* Layer indicators (when showing all layers) */}
+        {layers === "all" && (
+          <div className="space-y-1 pb-1 border-b border-[var(--border)]">
+            {(["document", "chunk", "entity"] as const).map((l) => (
+              <button
+                key={l}
+                className="flex items-center gap-1.5 w-full text-left"
+                onClick={() => toggleLayer(l)}
+                style={{ opacity: hiddenLayers.has(l) ? 0.35 : 1 }}
+              >
+                <span
+                  className="inline-block rounded-full"
+                  style={{
+                    background: l === "entity" ? FALLBACK_COLOR : LAYER_COLORS[l],
+                    width: l === "document" ? 10 : l === "chunk" ? 5 : 8,
+                    height: l === "document" ? 10 : l === "chunk" ? 5 : 8,
+                  }}
+                />
+                <span className="capitalize">{l}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Entity type colors */}
+        {classesPresent.length > 1 && (
+          <div className="space-y-1">
+            {classesPresent.map((c) => (
+              <div key={c} className="flex items-center gap-1.5">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-full"
+                  style={{ background: CLASS_COLORS[c] || FALLBACK_COLOR }}
+                />
+                <span>{c}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {/* Floating controls — bottom-right */}
       <div className="absolute bottom-4 right-4 flex flex-col gap-2 panel p-1.5">
@@ -199,8 +289,8 @@ export function GraphView({
 
       {/* Counts — bottom-left */}
       <div className="absolute bottom-4 left-4 font-mono text-[0.7rem] text-muted">
-        <span className="chip">{nodes.length} nodes</span>{" "}
-        <span className="chip">{edges.length} edges</span>
+        <span className="chip">{visibleNodes.length} nodes</span>{" "}
+        <span className="chip">{visibleEdges.length} edges</span>
       </div>
     </div>
   );

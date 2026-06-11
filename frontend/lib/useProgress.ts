@@ -3,9 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 
 export type Progress = {
-  stage: "idle" | "loading" | "chunking" | "extracting" | "ingesting" | "done";
+  stage: "idle" | "loading" | "chunking" | "persisting" | "extracting" | "ingesting" | "done";
   chunks_total: number;
   chunks_processed: number;
+  chunks_persisted?: number;
   chunks_failed?: number;
   triples_extracted: number;
   triples_ingested: number;

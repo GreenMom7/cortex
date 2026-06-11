@@ -32,9 +32,9 @@ async def get_schema():
 
 
 @router.get("/graph", response_model=GraphResponse)
-async def get_graph(limit: int = 250):
+async def get_graph(limit: int = 250, layers: str = "entity"):
     _require_connected()
-    return await neo4j_service.fetch_graph(limit=limit)
+    return await neo4j_service.fetch_graph(limit=limit, layers=layers)
 
 
 @router.patch("/graph/nodes/{node_id}")

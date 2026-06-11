@@ -45,12 +45,16 @@ class SessionState:
     chunk_size: int = 670
     chunk_overlap: int = 10
 
+    # Vector index availability (set during pipeline startup)
+    vector_index_available: bool = False
+
     # Pipeline progress
     progress: dict[str, Any] = field(default_factory=lambda: {
-        "stage": "idle",            # idle | loading | chunking | extracting | ingesting | done
+        "stage": "idle",            # idle | loading | chunking | persisting | extracting | ingesting | done
         "chunks_total": 0,
         "chunks_processed": 0,
         "chunks_failed": 0,
+        "chunks_persisted": 0,
         "triples_extracted": 0,
         "triples_ingested": 0,
         "message": "",

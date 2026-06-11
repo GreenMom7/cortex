@@ -10,7 +10,8 @@ import { SchemaPanel } from "@/components/graph/SchemaPanel";
 import { useGraph } from "@/lib/useGraph";
 
 export default function Page() {
-  const { nodes, edges, refresh } = useGraph();
+  const [layers, setLayers] = useState<"entity" | "all">("entity");
+  const { nodes, edges, refresh } = useGraph(layers);
   const [selected, setSelected] = useState<string | null>(null);
   const [highlightNodes, setHN] = useState<string[]>([]);
   const [highlightEdges, setHE] = useState<string[]>([]);
@@ -62,6 +63,8 @@ export default function Page() {
             highlightEdges={highlightEdges}
             onSelectNode={handleSelectNode}
             selectedNode={selected}
+            layers={layers}
+            onLayersChange={setLayers}
           />
         </section>
 

@@ -60,6 +60,54 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
     );
   }
 
+  const layer = node.data?._layer || (
+    node.labels.includes("Document") ? "document" :
+    node.labels.includes("Chunk") ? "chunk" : "entity"
+  );
+
+  if (layer === "document" || layer === "chunk") {
+    return (
+      <div className="panel flex flex-col h-full overflow-hidden animate-slide-up">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <div>
+            <div className="label !mb-0 capitalize">{layer} node</div>
+            <h3 className="font-mono text-sm font-semibold truncate">{node.label}</h3>
+          </div>
+          <button onClick={onClose} className="btn btn-ghost !text-[0.7rem]">close</button>
+        </div>
+        <div className="px-4 py-3 space-y-3 overflow-y-auto flex-1">
+          {layer === "document" && (
+            <>
+              <ReadOnlyField label="File name" value={node.data.fileName} />
+              <ReadOnlyField label="Source" value={node.data.fileSource} />
+              <ReadOnlyField label="Type" value={node.data.fileType} />
+            </>
+          )}
+          {layer === "chunk" && (
+            <>
+              <ReadOnlyField label="Chunk ID" value={node.data.chunkId} />
+              <ReadOnlyField label="Position" value={String(node.data.position ?? "")} />
+              <div>
+                <label className="label">Text preview</label>
+                <p className="font-mono text-[0.72rem] panel-soft px-3 py-2 rounded whitespace-pre-wrap">
+                  {node.data.text || "(empty)"}
+                </p>
+              </div>
+            </>
+          )}
+          <div>
+            <label className="label">Labels</label>
+            <div className="flex flex-wrap gap-1">
+              {node.labels.map((l) => (
+                <span key={l} className="chip">{l}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const incoming = edges.filter((e) => e.target === node.id);
   const outgoing = edges.filter((e) => e.source === node.id);
 
@@ -263,6 +311,17 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
           <Trash2 size={13} /> Delete node
         </button>
       </div>
+    </div>
+  );
+}
+
+function ReadOnlyField({ label, value }: { label: string; value?: string }) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <code className="font-mono text-[0.72rem] panel-soft px-2 py-1.5 rounded block truncate select-all normal-case tracking-normal">
+        {value || "—"}
+      </code>
     </div>
   );
 }

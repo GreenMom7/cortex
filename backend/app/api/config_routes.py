@@ -44,7 +44,7 @@ async def set_llm(cfg: LLMConfig):
     state.llm_provider = cfg.provider.lower()
     state.llm_model = cfg.model
     state.llm_api_key = cfg.api_key
-    tate.llm_base_url = cfg.base_url or ""
+    state.llm_base_url = cfg.base_url or ""
     # Smoke test
     try:
         llm = get_llm()
