@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { api, GraphNode, GraphEdge } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -25,6 +26,7 @@ type PropRow = { id: string; key: string; value: string };
 
 const themedToast = {
   duration: 2500,
+  position: "top-center" as const,
   style: {
     background: "var(--bg-elev)",
     border: "1px solid var(--border)",
@@ -33,9 +35,81 @@ const themedToast = {
   },
 };
 
+/** Centered, dismissible modal rendered to <body> so ancestor transforms can't clip it. */
+function Modal({
+  title,
+  icon,
+  children,
+  confirmLabel,
+  confirmColor = "var(--accent)",
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  children?: React.ReactNode;
+  confirmLabel: string;
+  confirmColor?: string;
+  busy?: boolean;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)" }}
+      onClick={onClose}
+    >
+      <div
+        className="panel w-full max-w-md rounded-lg p-5 animate-slide-up"
+        style={{
+          background: "var(--bg-elev)",
+          border: "1px solid var(--border)",
+          boxShadow: "0 12px 40px rgba(0,0,0,0.35)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-2 mb-3">
+          {icon}
+          <h3 className="font-mono text-sm font-semibold">{title}</h3>
+        </div>
+        {children && <div className="mb-4 space-y-1.5">{children}</div>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="btn btn-ghost" disabled={busy}>
+            Cancel
+          </button>
+          <button
+            onClick={onConfirm}
+            className="btn"
+            disabled={busy}
+            style={{ color: confirmColor, borderColor: confirmColor }}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
   const [rows, setRows] = useState<PropRow[]>([]);
   const [label, setLabel] = useState("");
+  const [dialog, setDialog] = useState<null | "delete" | "merge" | "relate">(null);
+  const [mergeId, setMergeId] = useState("");
+  const [relTarget, setRelTarget] = useState("");
+  const [relName, setRelName] = useState("");
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (node) {
@@ -77,51 +151,72 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
       toast.error(e.message);
     }
   }
-  async function del() {
-    if (!confirm(`Delete node "${node!.label}"?`)) return;
+  function del() {
+    setDialog("delete");
+  }
+  function merge() {
+    setMergeId("");
+    setDialog("merge");
+  }
+  function addRel() {
+    setRelTarget("");
+    setRelName("");
+    setDialog("relate");
+  }
+
+  async function confirmDelete() {
+    setBusy(true);
     try {
       await api.deleteNode(node!.id);
       toast("Node deleted", {
         ...themedToast,
         icon: <Trash2 size={13} style={{ color: "var(--danger)" }} />,
       });
+      setDialog(null);
       onChange();
       onClose();
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setBusy(false);
     }
   }
-  async function merge() {
-    const targetId = prompt(
-      "Merge INTO which node ID? (find it in the node list)",
-    );
-    if (!targetId) return;
+
+  async function confirmMerge() {
+    if (!mergeId.trim()) return;
+    setBusy(true);
     try {
-      await api.mergeNodes(node!.id, targetId);
+      await api.mergeNodes(node!.id, mergeId.trim());
       toast("Nodes merged", {
         ...themedToast,
         icon: <GitMerge size={13} style={{ color: "var(--accent)" }} />,
       });
+      setDialog(null);
       onChange();
       onClose();
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setBusy(false);
     }
   }
-  async function addRel() {
-    const targetId = prompt("Target node ID?");
-    const rel = prompt("Relationship name (e.g. WORKS_FOR)?");
-    if (!targetId || !rel) return;
+
+  async function confirmRelate() {
+    if (!relTarget.trim() || !relName.trim()) return;
+    setBusy(true);
     try {
       await api.addRelation(
         node!.id,
-        targetId,
-        rel.toUpperCase().replace(/\s+/g, "_"),
+        relTarget.trim(),
+        relName.toUpperCase().replace(/\s+/g, "_"),
       );
       toast.success("Relation added");
+      setDialog(null);
       onChange();
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -263,6 +358,73 @@ export function NodeDetails({ node, nodes, edges, onChange, onClose }: Props) {
           <Trash2 size={13} /> Delete node
         </button>
       </div>
+
+      {dialog === "delete" && (
+        <Modal
+          title={`Delete node "${node.label}"?`}
+          icon={<Trash2 size={16} style={{ color: "var(--danger)" }} />}
+          confirmLabel="Delete"
+          confirmColor="var(--danger)"
+          busy={busy}
+          onConfirm={confirmDelete}
+          onClose={() => setDialog(null)}
+        >
+          <p className="font-mono text-xs text-muted">
+            Removes the node and all of its relationships. This can’t be undone.
+          </p>
+        </Modal>
+      )}
+
+      {dialog === "merge" && (
+        <Modal
+          title="Merge node"
+          icon={<GitMerge size={16} style={{ color: "var(--accent)" }} />}
+          confirmLabel="Merge"
+          busy={busy}
+          onConfirm={confirmMerge}
+          onClose={() => setDialog(null)}
+        >
+          <label className="label">Merge into node ID</label>
+          <input
+            autoFocus
+            className="input"
+            value={mergeId}
+            onChange={(e) => setMergeId(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && confirmMerge()}
+            placeholder="Paste the target node ID…"
+          />
+        </Modal>
+      )}
+
+      {dialog === "relate" && (
+        <Modal
+          title="Relate to another node"
+          icon={<Plus size={16} style={{ color: "var(--accent)" }} />}
+          confirmLabel="Add relation"
+          busy={busy}
+          onConfirm={confirmRelate}
+          onClose={() => setDialog(null)}
+        >
+          <label className="label">Target node ID</label>
+          <input
+            autoFocus
+            className="input"
+            value={relTarget}
+            onChange={(e) => setRelTarget(e.target.value)}
+            placeholder="Paste the target node ID…"
+          />
+          <label className="label" style={{ marginTop: 8 }}>
+            Relationship
+          </label>
+          <input
+            className="input"
+            value={relName}
+            onChange={(e) => setRelName(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && confirmRelate()}
+            placeholder="e.g. WORKS_FOR"
+          />
+        </Modal>
+      )}
     </div>
   );
 }
