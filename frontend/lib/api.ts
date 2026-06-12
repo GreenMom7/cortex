@@ -39,9 +39,10 @@ export const api = {
     chunk_overlap: number;
   }>("/api/config/status"),
   getProgress: () => call<{
-    stage: "idle" | "loading" | "chunking" | "extracting" | "ingesting" | "done";
+    stage: "idle" | "loading" | "chunking" | "persisting" | "extracting" | "ingesting" | "done";
     chunks_total: number;
     chunks_processed: number;
+    chunks_persisted: number;
     triples_extracted: number;
     triples_ingested: number;
     message: string;
@@ -80,15 +81,16 @@ export const api = {
     if (!res.ok) throw new Error(await res.text());
     return res.json() as Promise<{ ok: boolean; files: { name: string; path: string; size_bytes: number }[] }>;
   },
-  runPipeline: (sources: string[], clear_existing = false) =>
+  getEntityTypes: () => call<{ entity_types: string[] }>("/api/config/entity-types"),
+  runPipeline: (sources: string[], clear_existing = false, entity_types?: string[]) =>
     call("/api/pipeline/run", {
       method: "POST",
-      body: JSON.stringify({ sources, clear_existing }),
+      body: JSON.stringify({ sources, clear_existing, entity_types }),
     }),
 
   // Graph
-  getGraph: (limit : number | "All" = 250) =>
-    call<{ nodes: GraphNode[]; edges: GraphEdge[] }>(`/api/graph?limit=${limit}`),
+  getGraph: (limit: number | "All" = 250, layers: "entity" | "all" = "entity") =>
+    call<{ nodes: GraphNode[]; edges: GraphEdge[] }>(`/api/graph?limit=${limit}&layers=${layers}`),
   updateNode: (id: string, properties: Record<string, any>, new_label?: string) =>
     call(`/api/graph/nodes/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -171,6 +173,7 @@ export type ChatResponse = {
   cypher: string;
   node_ids: string[];
   edge_ids: string[];
+  chunk_ids?: string[];
   context: string;
   reasoning: { step: string; detail: string }[];
   scores: { retrieval: number; confidence: number };

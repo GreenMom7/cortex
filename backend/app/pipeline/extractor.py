@@ -50,7 +50,7 @@ def sanitize_label(label: str) -> str:
     return cleaned
 
 
-def parse_triples(raw: str) -> list[dict]:
+def parse_triples(raw: str, allowed_types: list[str] | None = None) -> list[dict]:
     """Robustly extract a JSON list of triples from an LLM response."""
     raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw.strip(), flags=re.MULTILINE)
     match = re.search(r"\[.*\]", raw, re.DOTALL)
@@ -61,7 +61,7 @@ def parse_triples(raw: str) -> list[dict]:
     except json.JSONDecodeError:
         return []
 
-    allowed = set(ENTITY_TYPES)
+    allowed = set(allowed_types or ENTITY_TYPES)
     out = []
     for t in triples:
         if not isinstance(t, dict):
@@ -86,9 +86,10 @@ def parse_triples(raw: str) -> list[dict]:
     return out
 
 
-def extract_from_chunk(chunk_text: str, llm) -> list[dict]:
+def extract_from_chunk(chunk_text: str, llm, entity_types: list[str] | None = None) -> list[dict]:
     """Call the LLM once on one chunk; return parsed triples."""
-    prompt = EXTRACTION_PROMPT.format(text=chunk_text, types=", ".join(ENTITY_TYPES))
+    types = entity_types or ENTITY_TYPES
+    prompt = EXTRACTION_PROMPT.format(text=chunk_text, types=", ".join(types))
     resp = llm.invoke(prompt)
     raw = resp.content if hasattr(resp, "content") else str(resp)
-    return parse_triples(raw)
+    return parse_triples(raw, allowed_types=types)

@@ -11,6 +11,7 @@ from app.models.schemas import (
     Neo4jCredentials,
     StatusResponse,
 )
+from app.pipeline.extractor import ENTITY_TYPES
 from app.services.llm_service import MODEL_CATALOG, get_llm
 from app.services.neo4j_service import neo4j_service
 
@@ -72,6 +73,11 @@ async def set_chunking(cfg: ChunkingConfig):
     state.chunk_size = cfg.chunk_size
     state.chunk_overlap = cfg.chunk_overlap
     return StatusResponse(ok=True, message=f"Chunk size={cfg.chunk_size}, overlap={cfg.chunk_overlap}")
+
+
+@router.get("/entity-types")
+async def get_entity_types():
+    return {"entity_types": ENTITY_TYPES}
 
 
 @router.get("/status")

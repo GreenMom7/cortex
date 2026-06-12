@@ -57,7 +57,7 @@ async def run(req: PipelineRequest, background: BackgroundTasks):
         import traceback
         print(f"[pipeline] starting: {len(req.sources)} source(s), clear={req.clear_existing}", flush=True)
         try:
-            result = await run_pipeline(req.sources, clear_existing=req.clear_existing)
+            result = await run_pipeline(req.sources, clear_existing=req.clear_existing, entity_types=req.entity_types)
             print(f"[pipeline] finished: {result}", flush=True)
         except Exception as e:
             print(f"\n[pipeline] FAILED: {e}\n{traceback.format_exc()}", flush=True)
