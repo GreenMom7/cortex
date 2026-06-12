@@ -81,10 +81,11 @@ export const api = {
     if (!res.ok) throw new Error(await res.text());
     return res.json() as Promise<{ ok: boolean; files: { name: string; path: string; size_bytes: number }[] }>;
   },
-  runPipeline: (sources: string[], clear_existing = false) =>
+  getEntityTypes: () => call<{ entity_types: string[] }>("/api/config/entity-types"),
+  runPipeline: (sources: string[], clear_existing = false, entity_types?: string[]) =>
     call("/api/pipeline/run", {
       method: "POST",
-      body: JSON.stringify({ sources, clear_existing }),
+      body: JSON.stringify({ sources, clear_existing, entity_types }),
     }),
 
   // Graph

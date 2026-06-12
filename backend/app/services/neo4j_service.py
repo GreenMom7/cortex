@@ -75,8 +75,9 @@ class Neo4jService:
             return []
         try:
             rows = await self.run(
-                "CALL db.index.vector.queryNodes('chunk_embedding', $topK, $embedding) "
-                "YIELD node AS chunk, score "
+                "MATCH (chunk:Chunk) "
+                "SEARCH chunk IN (VECTOR INDEX chunk_embedding FOR $embedding LIMIT $topK) "
+                "SCORE AS score "
                 "WHERE score > $threshold "
                 "RETURN chunk.text AS text, chunk.chunkId AS chunkId, score "
                 "ORDER BY score DESC",

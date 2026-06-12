@@ -183,7 +183,7 @@ async def run_pipeline(sources: Iterable[str], clear_existing: bool = False, ent
 
         for attempt in range(max_retries):
             try:
-                triples = extract_from_chunk(text, llm)
+                triples = extract_from_chunk(text, llm, entity_types=entity_types)
                 for t in triples:
                     t["_chunk_id"] = chunk_id
                 return triples, None

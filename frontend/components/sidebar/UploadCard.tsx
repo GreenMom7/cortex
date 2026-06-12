@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Upload, Globe, Trash2, Check, X, Play } from "lucide-react";
+import { Upload, Globe, Trash2, Check, X, Play, Tags } from "lucide-react";
 import { api } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -16,11 +16,14 @@ export function UploadCard() {
   const [items, setItems] = useState<Item[]>([]);
   const [url, setUrl] = useState("");
   const [clear, setClear] = useState(false);
+  const [allEntityTypes, setAllEntityTypes] = useState<string[]>([]);
+  const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
   const savedItems = localStorage.getItem("pipeline_sources");
   const savedClear = localStorage.getItem("pipeline_clear");
+  const savedTypes = localStorage.getItem("pipeline_entity_types");
 
   if (savedItems) {
     try {
@@ -39,6 +42,20 @@ export function UploadCard() {
   if (savedClear) {
     setClear(savedClear === "true");
   }
+
+  api.getEntityTypes().then(({ entity_types }) => {
+    setAllEntityTypes(entity_types);
+    if (savedTypes) {
+      try {
+        const parsed = JSON.parse(savedTypes);
+        setSelectedTypes(parsed.filter((t: string) => entity_types.includes(t)));
+      } catch {
+        setSelectedTypes(entity_types);
+      }
+    } else {
+      setSelectedTypes(entity_types);
+    }
+  }).catch(() => {});
 }, []);
 
   useEffect(() => {
@@ -48,6 +65,18 @@ export function UploadCard() {
   useEffect(() => {
     localStorage.setItem("pipeline_clear", String(clear));
   }, [clear]);
+
+  useEffect(() => {
+    if (selectedTypes.length > 0) {
+      localStorage.setItem("pipeline_entity_types", JSON.stringify(selectedTypes));
+    }
+  }, [selectedTypes]);
+
+  function toggleType(type: string) {
+    setSelectedTypes((prev) =>
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
+    );
+  }
 
   
   async function handleFiles(files: FileList | null) {
@@ -86,8 +115,13 @@ export function UploadCard() {
       toast.error("Add at least one source.");
       return;
     }
+    if (selectedTypes.length === 0) {
+      toast.error("Select at least one entity type.");
+      return;
+    }
+    const typesToSend = selectedTypes.length === allEntityTypes.length ? undefined : selectedTypes;
     try {
-      await api.runPipeline(sources, clear);
+      await api.runPipeline(sources, clear, typesToSend);
       toast.success("Pipeline started — watch the progress bar.");
     } catch (e: any) {
       toast.error(e.message);
@@ -155,6 +189,44 @@ export function UploadCard() {
             </li>
           ))}
         </ul>
+      )}
+
+      {/* Entity type selector */}
+      {allEntityTypes.length > 0 && (
+        <div className="space-y-1.5">
+          <h4 className="font-mono text-[0.68rem] uppercase tracking-wider text-muted flex items-center gap-1.5">
+            <Tags size={11} /> Entity types
+          </h4>
+          <div className="flex flex-wrap gap-1">
+            {allEntityTypes.map((type) => (
+              <button
+                key={type}
+                onClick={() => toggleType(type)}
+                className={`px-2 py-0.5 rounded-full font-mono text-[0.68rem] border transition-colors ${
+                  selectedTypes.includes(type)
+                    ? "bg-[var(--accent)] text-white border-[var(--accent)]"
+                    : "border-[var(--border)] text-muted hover:border-[var(--accent)] hover:text-[var(--fg)]"
+                }`}
+              >
+                {type}
+              </button>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setSelectedTypes([...allEntityTypes])}
+              className="font-mono text-[0.62rem] text-muted hover:text-[var(--fg)] underline"
+            >
+              all
+            </button>
+            <button
+              onClick={() => setSelectedTypes([])}
+              className="font-mono text-[0.62rem] text-muted hover:text-[var(--fg)] underline"
+            >
+              none
+            </button>
+          </div>
+        </div>
       )}
 
       <label className="flex items-center gap-2 font-mono text-[0.72rem] text-muted select-none">
