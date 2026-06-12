@@ -106,33 +106,35 @@ class Neo4jService:
         data["_layer"] = Neo4jService._node_layer(label_set)
         return data
 
-    async def fetch_graph(self, limit: int = 250, layers: str = "entity") -> dict[str, Any]:
-        """Return the current graph in {nodes, edges} shape for Reagraph.
-
-        layers: "entity" (default) returns only Entity nodes,
-                "all" returns Document + Chunk + Entity nodes.
-        """
+    async def fetch_graph(self, limit: str = "250", layers: str = "entity") -> dict[str, Any]:
+        """Return the current graph in {nodes, edges} shape for Reagraph."""
+        is_all = str(limit).lower() == "all"
+        limit_clause = "" if is_all else "LIMIT $limit"
+        
+        # Limit distinct nodes first, then find their relationships
         if layers == "all":
-            cypher = """
+            cypher = f"""
             MATCH (n)
+            WITH n {limit_clause}
             OPTIONAL MATCH (n)-[r]->(m)
             RETURN n, r, m
-            LIMIT $limit
             """
         else:
-            cypher = """
+            cypher = f"""
             MATCH (n:Entity)
+            WITH n {limit_clause}
             OPTIONAL MATCH (n)-[r]->(m:Entity)
             RETURN n, r, m
-            LIMIT $limit
             """
         nodes: dict[str, dict] = {}
         edges: list[dict] = []
 
+        params = {} if is_all else {"limit": int(limit)}
+
         async with self.driver.session(
             database=state.neo4j_username or None
         ) as sess:
-            result = await sess.run(cypher, {"limit": limit})
+            result = await sess.run(cypher, params)
             async for record in result:
                 n = record["n"]
                 m = record["m"]
@@ -201,6 +203,37 @@ class Neo4jService:
             {"id": node_id},
         )
         state.record_change("delete_node", node_id, before[0] if before else None, None)
+
+    async def add_node(self, label: str, properties: dict | None = None) -> str | None:
+        """Create a new node with a given label and properties."""
+        # Clean the label to prevent Cypher injection issues
+        safe_label = label.strip().replace("`", "")
+        if not safe_label:
+             raise ValueError("Node label cannot be empty")
+        
+        if safe_label == "Entity":
+            label_clause = ":`Entity`"
+        else:
+            label_clause = f":`Entity`:`{safe_label}`"
+
+        cypher = f"""
+        CREATE (n{label_clause})
+        SET n = $props
+        RETURN elementId(n) AS id
+        """
+        
+        rows = await self.run(cypher, {"props": properties or {}})
+        node_id = rows[0]["id"] if rows else None
+        
+        # Record the change for the undo history
+        state.record_change(
+            "add_node", 
+            node_id, 
+            None,  # No 'before' state for a new node
+            {"id": node_id, "label": safe_label, "properties": properties or {}}
+        )
+        
+        return node_id
 
     async def merge_nodes(self, source_id: str, target_id: str):
         """Merge source into target: move all relationships preserving their types, then delete source.
@@ -448,6 +481,12 @@ class Neo4jService:
             )
             state.history.pop(index)
             return f"Recreated relation {rel_type}"
+        
+        elif action == "add_node":
+            node_id = entry.target
+            await self.run("MATCH (n) WHERE elementId(n) = $id DETACH DELETE n", {"id": node_id})
+            state.history.pop(index)
+            return f"Deleted newly created node {node_id}"
 
         else:
             raise ValueError(f"Action '{action}' cannot be undone")

@@ -11,7 +11,9 @@ import { useGraph } from "@/lib/useGraph";
 
 export default function Page() {
   const [layers, setLayers] = useState<"entity" | "all">("entity");
-  const { nodes, edges, refresh } = useGraph(layers);
+  const [limit, setLimit] = useState<number | "All">(250);
+  const { nodes, edges, refresh } = useGraph(limit, layers);
+
   const [selected, setSelected] = useState<string | null>(null);
   const [highlightNodes, setHN] = useState<string[]>([]);
   const [highlightEdges, setHE] = useState<string[]>([]);
@@ -65,6 +67,8 @@ export default function Page() {
             selectedNode={selected}
             layers={layers}
             onLayersChange={setLayers}
+            onChange={handleGraphRefresh}
+            onLimitChange={(newLimit) => setLimit(newLimit)}
           />
         </section>
 

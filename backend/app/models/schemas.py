@@ -39,6 +39,11 @@ class PipelineRequest(BaseModel):
     entity_types: list[str] | None = Field(default=None, description="Entity types to extract (None = all defaults)")
 
 
+class AddNode(BaseModel):
+    label: str
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
 class NodeUpdate(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
     new_label: str | None = None
