@@ -18,8 +18,10 @@ import re
 import logging
 from typing import Any
 
+import torch
 from sentence_transformers import SentenceTransformer, util
 
+from app.core.session import state
 from app.services.llm_service import get_llm
 from app.services.neo4j_service import neo4j_service
 
@@ -54,38 +56,43 @@ Rewritten question:"""
 CYPHER_PROMPT = """You are a Neo4j Cypher expert. Generate ONE read-only Cypher query against a knowledge graph extracted from documents.
 
 Graph schema:
-- Every node carries the label :Entity, plus one of: :Person, :Place, :Organization, :Event, :Date, :Work, :Concept, :Object, :Other.
-- All nodes have a `name` property (the canonical surface form found in the source text).
-- Relationships are directed; type names are UPPER_SNAKE_CASE (e.g. REIGNED_FROM, FATHER_OF, LOCATED_IN).
+- Every entity node carries the :Entity label PLUS a type label: :Person, :Place, :Organization, :Event, :Date, :Work, :Concept, :Object, or :Other.
+- All entity nodes have a `name` property (the canonical surface form from the source text).
+- Relationships between entities are directed; type names are UPPER_SNAKE_CASE (e.g. REIGNED_FROM, FATHER_OF, LOCATED_IN).
+- There are also :Document and :Chunk infrastructure nodes, but do NOT query those — focus ONLY on :Entity nodes and inter-entity relationships.
 
 Rules:
-1. Match entities by name with a CASE-INSENSITIVE regex that tolerates spelling variation.
+1. ALWAYS use the :Entity label in MATCH patterns — NEVER use type labels like :Person or :Place in MATCH.
+   Correct: MATCH (n:Entity)-[r]-(m:Entity) WHERE n.name =~ '(?i).*curie.*'
+   WRONG:   MATCH (n:Person)-[r]-(m) WHERE n.name =~ '(?i).*curie.*'
+
+2. Match entities by name with a CASE-INSENSITIVE regex that tolerates spelling variation.
    Use `(?i)` and allow either form for diacritics and romanization variants.
    Marie Curie: match with '(?i).*(marie|curie|skłodowska|sklodowska).*'
    Common name variants: Muhammad/Mehmed/Mohammed, Peter/Pyotr/Pierre,
    Constantinople/Istanbul, Suleiman/Süleyman.
    When unsure, prefer a short stem: `mehm.*iv` over an exact name.
 
-2. For single-subject questions ("tell me about X"), return the 1-hop neighborhood:
+3. For single-subject questions ("tell me about X"), return the 1-hop neighborhood:
    MATCH (n:Entity)-[r]-(m:Entity) WHERE n.name =~ '(?i).*X.*' RETURN n, r, m LIMIT 80
 
-3. For two-subject questions ("how is X related to Y"), use shortestPath with UNWIND outside the path:
+4. For two-subject questions ("how is X related to Y"), use shortestPath with UNWIND outside the path:
    MATCH p = shortestPath((a:Entity)-[*..4]-(b:Entity))
    WHERE a.name =~ '(?i).*X.*' AND b.name =~ '(?i).*Y.*'
-   UNWIND relationships(p) AS r
-   WITH r, startNode(r) AS n, endNode(r) AS m
+   UNWIND relationships(p) AS rel
+   WITH startNode(rel) AS n, rel AS r, endNode(rel) AS m
    RETURN n, r, m LIMIT 100
 
-4. For questions with 3 or more subjects, use separate MATCH clauses joined by WITH.
+5. For questions with 3 or more subjects, use separate MATCH clauses joined by WITH.
 
-5. NEVER nest ANY() inside relationships() or nodes() of a path.
-6. NEVER add extra WITH clauses inside a shortestPath MATCH.
-7. Always include relationship variables in RETURN so they can be extracted downstream.
-   WRONG: RETURN n, m   RIGHT: RETURN n, r, m
-8. Always include LIMIT (≤ 100).
-9. Output Cypher only — no markdown fences, no comments, no prose.
-10. For yes/no questions, superlative questions ("first", "only", "most", "best"), or questions
-    asking whether a fact is true about a single subject, use the 1-hop neighborhood (rule 2)
+6. NEVER nest ANY() inside relationships() or nodes() of a path.
+7. NEVER add extra WITH clauses inside a shortestPath MATCH.
+8. Always RETURN full node and relationship objects: RETURN n, r, m
+   WRONG: RETURN n.name, type(r), m.name   RIGHT: RETURN n, r, m
+9. Always include LIMIT (≤ 100).
+10. Output Cypher only — no markdown fences, no comments, no prose.
+11. For yes/no questions, superlative questions ("first", "only", "most", "best"), or questions
+    asking whether a fact is true about a single subject, use the 1-hop neighborhood (rule 3)
     for that subject — do NOT try to match a second entity for the superlative qualifier.
 
 Question: {question}
@@ -107,7 +114,9 @@ Entities:"""
 
 ANSWER_PROMPT = """You are a research assistant answering a question using a knowledge graph extracted from documents.
 
-You are given a list of facts, one per line, already converted to natural English sentences.
+You are given context from two sources:
+- Relevant text passages retrieved by semantic similarity from the source documents.
+- Knowledge graph facts extracted as structured relationships between entities.
 
 Hard rules for your answer:
 1. Write natural prose — like a Wikipedia summary or a knowledgeable friend. NEVER use triple notation like `Subject -[RELATION]-> Object` or `(Subject, RELATION, Object)`. NEVER include UPPER_SNAKE_CASE relation names, arrows (`->`, `-[...]->`), or parenthetical citations of the source triples. Just write sentences.
@@ -125,7 +134,14 @@ Question: {question}
 Answer:"""
 
 
+def _strip_thinking_blocks(text: str) -> str:
+    """Remove <think>...</think> and <thinking>...</thinking> blocks emitted by reasoning models."""
+    text = re.sub(r"<think(?:ing)?>.*?</think(?:ing)?>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    return text.strip()
+
+
 def _strip_cypher_fences(text: str) -> str:
+    text = _strip_thinking_blocks(text)
     text = re.sub(r"^```(?:cypher)?\s*|\s*```$", "", text.strip(), flags=re.MULTILINE)
     m = re.search(r"(MATCH|CALL|WITH|OPTIONAL MATCH)\b.*", text, re.IGNORECASE | re.DOTALL)
     return (m.group(0) if m else text).strip().rstrip(";")
@@ -182,37 +198,37 @@ def _format_history(history: list[dict] | None, max_turns: int = 4) -> str:
     return "\n".join(lines)
 
 
-def _parse_records(records_iter, node_ids: set, edge_ids: set, seen: set, sentences: list) -> None:
-    """Extract relationship sentences from Neo4j records into sentences list."""
-    for record in records_iter:
-        rec_nodes: list = []
-        rec_rel = None
-        for v in record.values():
-            if hasattr(v, "type") and hasattr(v, "start_node"):
-                rec_rel = v
-                edge_ids.add(v.element_id)
-            elif hasattr(v, "labels"):
-                rec_nodes.append(v)
-                node_ids.add(v.element_id)
 
-        if rec_rel and len(rec_nodes) >= 2:
-            s_name = dict(rec_rel.start_node).get("name", "?")
-            o_name = dict(rec_rel.end_node).get("name", "?")
-            sentence = f"{s_name} {_humanize(rec_rel.type)} {o_name}."
-            if sentence not in seen:
-                seen.add(sentence)
-                sentences.append(sentence)
+_STOP_WORDS = frozenset({
+    "what", "when", "where", "which", "who", "whom", "whose", "why", "how",
+    "that", "this", "these", "those", "there", "here",
+    "have", "has", "had", "does", "did", "do", "will", "would", "could",
+    "should", "shall", "might", "must", "can", "may",
+    "been", "being", "were", "was", "are", "is", "am",
+    "much", "many", "more", "most", "some", "any", "all", "each", "every",
+    "about", "from", "with", "into", "between", "through", "after", "before",
+    "also", "than", "then", "very", "just", "only", "such", "like",
+    "tell", "know", "think", "make", "give", "take", "come", "find",
+    "want", "need", "mean", "keep", "help", "show", "called",
+    "the", "and", "but", "for", "not", "you", "your",
+})
 
 
-def _entity_fallback_query(entities: list[str]) -> str:
-    """Build a 1-hop neighborhood Cypher from extracted entity names."""
-    def _esc(name: str) -> str:
-        return name.replace("\\", "\\\\").replace("'", "\\'")
+def _entity_fallback_query(stems: list[str]) -> str:
+    """Build a 1-hop neighborhood Cypher from short word stems.
+
+    Uses toLower/CONTAINS instead of regex — simpler, faster, and tolerant of
+    partial name matches (e.g. stem "curie" matches "Marie Curie", "Pierre Curie").
+    """
+    def _esc(s: str) -> str:
+        return s.replace("\\", "\\\\").replace("'", "\\'")
 
     conditions = " OR ".join(
-        f"n.name =~ '(?i).*{_esc(e)}.*' OR m.name =~ '(?i).*{_esc(e)}.*'"
-        for e in entities
+        f"toLower(n.name) CONTAINS '{_esc(s)}' OR toLower(m.name) CONTAINS '{_esc(s)}'"
+        for s in stems
     )
+    if not conditions:
+        return "MATCH (n:Entity)-[r]-(m:Entity) RETURN n, r, m LIMIT 50"
     return f"MATCH (n:Entity)-[r]-(m:Entity) WHERE {conditions} RETURN n, r, m LIMIT 100"
 
 
@@ -220,6 +236,9 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
     reasoning: list[dict] = []
     llm = get_llm()
     history_text = _format_history(history)
+    chunk_ids: list[str] = []
+    passage_texts: list[str] = []
+    cached_q_embedding = None
 
     # Step 0: rewrite follow-up question into a self-contained one
     effective_question = question
@@ -227,12 +246,29 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
         rewrite_raw = llm.invoke(
             REWRITE_PROMPT.format(history=history_text, question=question)
         )
-        rewritten = (
+        rewritten = _strip_thinking_blocks(
             rewrite_raw.content if hasattr(rewrite_raw, "content") else str(rewrite_raw)
         ).strip().strip('"').strip("'")
         if rewritten and len(rewritten) < 500:
             effective_question = rewritten
         reasoning.append({"step": "rewrite_question", "detail": effective_question})
+
+    # Step 0.5: vector search on Chunk nodes for passage retrieval
+    if SIMILARITY_MODEL and state.vector_index_available:
+        try:
+            cached_q_embedding = SIMILARITY_MODEL.encode(effective_question, normalize_embeddings=True)
+            q_embedding = cached_q_embedding.tolist()
+            vector_results = await neo4j_service.vector_search(q_embedding, top_k=5, threshold=0.65)
+            for row in vector_results:
+                passage_texts.append(row["text"])
+                chunk_ids.append(row["chunkId"])
+            reasoning.append({
+                "step": "vector_search",
+                "detail": f"{len(vector_results)} passage(s) retrieved from chunk embeddings",
+            })
+        except Exception as e:
+            log.warning("Vector search step failed: %s", e)
+            reasoning.append({"step": "vector_search", "detail": f"skipped: {e}"})
 
     # Step 1: generate Cypher from natural language
     cypher_raw = llm.invoke(CYPHER_PROMPT.format(question=effective_question))
@@ -253,6 +289,7 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
         }
 
     reasoning.append({"step": "generate_cypher", "detail": cypher})
+    log.info("Generated Cypher: %s", cypher)
 
     sentences: list[str] = []
     seen_sentences: set[str] = set()
@@ -260,45 +297,69 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
     edge_ids: set[str] = set()
     used_cypher = cypher
 
-    # Step 2: execute the LLM-generated Cypher
+    def _collect_sentences(record):
+        """Extract one (subject, predicate, object) sentence from a Neo4j record."""
+        rec_nodes, rec_rel = [], None
+        for v in record.values():
+            if v is None:
+                continue
+            if hasattr(v, "type") and hasattr(v, "start_node"):
+                rec_rel = v
+                edge_ids.add(v.element_id)
+            elif hasattr(v, "labels"):
+                rec_nodes.append(v)
+                node_ids.add(v.element_id)
+        if rec_rel is not None and len(rec_nodes) >= 2:
+            s_name = dict(rec_nodes[0]).get("name", "?")
+            o_name = dict(rec_nodes[1]).get("name", "?")
+            sentence = f"{s_name} {_humanize(rec_rel.type)} {o_name}."
+            if sentence not in seen_sentences:
+                seen_sentences.add(sentence)
+                sentences.append(sentence)
+
+    # Step 2: execute the LLM-generated Cypher (process records INSIDE the session
+    # so that relationship.start_node / .end_node are still live objects)
     try:
+        record_count = 0
         async with neo4j_service.driver.session() as sess:
             result = await sess.run(cypher)
-            records = [record async for record in result]
+            async for record in result:
+                record_count += 1
+                _collect_sentences(record)
 
-        _parse_records(records, node_ids, edge_ids, seen_sentences, sentences)
+        log.info("Cypher returned %d records → %d sentences, %d nodes, %d edges",
+                 record_count, len(sentences), len(node_ids), len(edge_ids))
         reasoning.append({"step": "execute_cypher", "detail": f"{len(node_ids)} nodes, {len(edge_ids)} edges"})
 
-        # If Cypher ran but returned no relationships, treat it as a failure
         if not sentences:
             raise RuntimeError("Cypher returned no relationship sentences")
 
     except Exception as e:
-        # Step 2b: fallback — extract entities, run fixed 1-hop neighborhood query
-        log.warning("Cypher failed or empty (%s) — falling back to entity query.", e)
+        log.warning("Cypher failed or empty (%s) — falling back to stem query.", e)
 
-        entity_raw = llm.invoke(ENTITY_PROMPT.format(question=effective_question))
-        entity_text = entity_raw.content if hasattr(entity_raw, "content") else str(entity_raw)
-        entities = [line.strip() for line in entity_text.strip().splitlines() if line.strip()][:3]
-
-        # Last resort: use content words from the question
-        if not entities:
-            entities = [
-                w.strip('?,."\'()')
+        stems = [
+            w.strip('?,."\'():;!').lower()
+            for w in effective_question.split()
+            if len(w.strip('?,."\'():;!')) > 3
+            and w.strip('?,."\'():;!').lower() not in _STOP_WORDS
+        ][:6]
+        if not stems:
+            stems = [
+                w.strip('?,."\'():;!').lower()
                 for w in effective_question.split()
-                if len(w.strip('?,."\'()')) > 4
-            ][:3]
+                if w.strip('?,."\'():;!').lower() not in _STOP_WORDS
+            ][:4]
 
-        fallback_cypher = _entity_fallback_query(entities)
+        fallback_cypher = _entity_fallback_query(stems)
         used_cypher = fallback_cypher
         reasoning.append({"step": "fallback_cypher", "detail": fallback_cypher})
 
         try:
             async with neo4j_service.driver.session() as sess:
                 result = await sess.run(fallback_cypher)
-                records = [record async for record in result]
+                async for record in result:
+                    _collect_sentences(record)
 
-            _parse_records(records, node_ids, edge_ids, seen_sentences, sentences)
             reasoning.append({
                 "step": "execute_cypher",
                 "detail": f"{len(node_ids)} nodes, {len(edge_ids)} edges (fallback)",
@@ -315,13 +376,24 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
                 "scores": {"retrieval": 0.0, "confidence": 0.0},
             }
 
-    context = "\n".join(sentences) or "(no results)"
+    # Build combined context from passages (vector search) + graph facts
+    context_parts = []
+    if passage_texts:
+        context_parts.append("--- Relevant text passages ---")
+        for i, txt in enumerate(passage_texts, 1):
+            context_parts.append(f"[{i}] {txt}")
+    if sentences:
+        context_parts.append("--- Knowledge graph facts ---")
+        context_parts.extend(sentences)
+    context = "\n".join(context_parts) or "(no results)"
 
     # Step 3: generate answer
     answer_resp = llm.invoke(
         ANSWER_PROMPT.format(context=context, question=effective_question)
     )
-    answer = answer_resp.content if hasattr(answer_resp, "content") else str(answer_resp)
+    answer = _strip_thinking_blocks(
+        answer_resp.content if hasattr(answer_resp, "content") else str(answer_resp)
+    )
     answer = re.sub(r"\s*-\[\s*[A-Z_]+\s*\]->\s*", " ", answer)
     answer = re.sub(r"\([^()]*-\[[^()]*\]->[^()]*\)", "", answer)
     answer = re.sub(r"[ \t]+", " ", answer).strip()
@@ -336,11 +408,14 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
     confidence_score = 0.0
 
     if SIMILARITY_MODEL and sentences and answer.strip():
-        all_texts = [effective_question, answer] + sentences
-        embeddings = SIMILARITY_MODEL.encode(all_texts, convert_to_tensor=True)
-        q_emb = embeddings[0]
-        a_emb = embeddings[1]
-        ctx_embs = embeddings[2:]
+        score_texts = [answer] + sentences
+        score_embeddings = SIMILARITY_MODEL.encode(score_texts, convert_to_tensor=True)
+        if cached_q_embedding is not None:
+            q_emb = torch.tensor(cached_q_embedding) if not hasattr(cached_q_embedding, 'device') else cached_q_embedding
+        else:
+            q_emb = SIMILARITY_MODEL.encode(effective_question, convert_to_tensor=True)
+        a_emb = score_embeddings[0]
+        ctx_embs = score_embeddings[1:]
 
         q_sims = util.cos_sim(q_emb, ctx_embs)[0]
         a_sims = util.cos_sim(a_emb, ctx_embs)[0]
@@ -357,6 +432,7 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
         "cypher": used_cypher,
         "node_ids": list(node_ids),
         "edge_ids": list(edge_ids),
+        "chunk_ids": chunk_ids,
         "context": context,
         "reasoning": reasoning,
         "scores": {"retrieval": round(retrieval_score, 2), "confidence": round(confidence_score, 2)},

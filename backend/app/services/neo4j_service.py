@@ -1,11 +1,14 @@
 """Async Neo4j service — connection lifecycle and graph CRUD."""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from neo4j import AsyncDriver, AsyncGraphDatabase
 
 from app.core.session import state
+
+log = logging.getLogger(__name__)
 
 
 class Neo4jService:
@@ -52,18 +55,77 @@ class Neo4jService:
             result = await sess.run(cypher, params or {})
             return [r.data() async for r in result]
 
-    async def fetch_graph(self, limit: str = "250") -> dict[str, Any]:
+    async def ensure_vector_index(self):
+        """Create the chunk embedding vector index if it doesn't exist."""
+        try:
+            await self.run(
+                "CREATE VECTOR INDEX chunk_embedding IF NOT EXISTS "
+                "FOR (c:Chunk) ON (c.embedding) "
+                "OPTIONS {indexConfig: {`vector.dimensions`: 768, `vector.similarity_function`: 'cosine'}}"
+            )
+            state.vector_index_available = True
+        except Exception as e:
+            log.warning("Vector index creation failed (instance may not support it): %s", e)
+            state.vector_index_available = False
+
+    async def vector_search(self, query_embedding: list[float], top_k: int = 5,
+                            threshold: float = 0.7) -> list[dict[str, Any]]:
+        """Search chunks by embedding similarity. Returns [] if vector index unavailable."""
+        if not state.vector_index_available:
+            return []
+        try:
+            rows = await self.run(
+                "CALL db.index.vector.queryNodes('chunk_embedding', $topK, $embedding) "
+                "YIELD node AS chunk, score "
+                "WHERE score > $threshold "
+                "RETURN chunk.text AS text, chunk.chunkId AS chunkId, score "
+                "ORDER BY score DESC",
+                {"topK": top_k, "embedding": query_embedding, "threshold": threshold},
+            )
+            return rows
+        except Exception as e:
+            log.warning("Vector search failed: %s", e)
+            return []
+
+    @staticmethod
+    def _node_layer(labels: set[str] | frozenset[str]) -> str:
+        if "Document" in labels:
+            return "document"
+        if "Chunk" in labels:
+            return "chunk"
+        return "entity"
+
+    @staticmethod
+    def _prepare_node_data(props: dict, labels) -> dict:
+        """Strip heavy properties and add layer metadata."""
+        data = dict(props)
+        data.pop("embedding", None)
+        if "text" in data and isinstance(data["text"], str) and len(data["text"]) > 100:
+            data["text"] = data["text"][:100] + "…"
+        label_set = set(labels)
+        data["_layer"] = Neo4jService._node_layer(label_set)
+        return data
+
+    async def fetch_graph(self, limit: str = "250", layers: str = "entity") -> dict[str, Any]:
         """Return the current graph in {nodes, edges} shape for Reagraph."""
         is_all = str(limit).lower() == "all"
         limit_clause = "" if is_all else "LIMIT $limit"
         
         # Limit distinct nodes first, then find their relationships
-        cypher = f"""
-        MATCH (n)
-        WITH n {limit_clause}
-        OPTIONAL MATCH (n)-[r]->(m)
-        RETURN n, r, m
-        """
+        if layers == "all":
+            cypher = f"""
+            MATCH (n)
+            WITH n {limit_clause}
+            OPTIONAL MATCH (n)-[r]->(m)
+            RETURN n, r, m
+            """
+        else:
+            cypher = f"""
+            MATCH (n:Entity)
+            WITH n {limit_clause}
+            OPTIONAL MATCH (n)-[r]->(m:Entity)
+            RETURN n, r, m
+            """
         nodes: dict[str, dict] = {}
         edges: list[dict] = []
 
@@ -83,8 +145,8 @@ class Neo4jService:
                     if nid not in nodes:
                         nodes[nid] = {
                             "id": nid,
-                            "label": dict(n).get("name", dict(n).get("id", "node")),
-                            "data": dict(n),
+                            "label": dict(n).get("name", dict(n).get("fileName", dict(n).get("chunkId", "node"))),
+                            "data": self._prepare_node_data(dict(n), n.labels),
                             "labels": list(n.labels),
                         }
                 if m is not None:
@@ -92,8 +154,8 @@ class Neo4jService:
                     if mid not in nodes:
                         nodes[mid] = {
                             "id": mid,
-                            "label": dict(m).get("name", dict(m).get("id", "node")),
-                            "data": dict(m),
+                            "label": dict(m).get("name", dict(m).get("fileName", dict(m).get("chunkId", "node"))),
+                            "data": self._prepare_node_data(dict(m), m.labels),
                             "labels": list(m.labels),
                         }
                 if r is not None and n is not None and m is not None:

@@ -2,7 +2,7 @@
 import { Activity } from "lucide-react";
 import { useProgress } from "@/lib/useProgress";
 
-const STAGES = ["idle", "loading", "chunking", "extracting", "ingesting", "done"] as const;
+const STAGES = ["idle", "loading", "chunking", "persisting", "extracting", "ingesting", "done"] as const;
 
 export function ProgressCard({ onDone }: { onDone?: () => void }) {
   const p = useProgress(onDone);

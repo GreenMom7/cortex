@@ -36,6 +36,7 @@ class ChunkingConfig(BaseModel):
 class PipelineRequest(BaseModel):
     sources: list[str] = Field(default_factory=list, description="File paths or URLs to ingest")
     clear_existing: bool = False
+    entity_types: list[str] | None = Field(default=None, description="Entity types to extract (None = all defaults)")
 
 
 class AddNode(BaseModel):
