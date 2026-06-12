@@ -389,7 +389,7 @@ class Neo4jService:
 
     async def delete_relation(self, edge_id: str):
         before = await self.run(
-            "MATCH ()-[r]->() WHERE elementId(r) = $id "
+            "MATCH (s)-[r]->(t) WHERE elementId(r) = $id "
             "RETURN elementId(s) AS source_id, elementId(t) AS target_id, type(r) AS rel_type, properties(r) AS props",
             {"id": edge_id},
         )
