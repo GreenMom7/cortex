@@ -59,11 +59,25 @@ export function GraphView({
 
   const [limit, setLimit] = useState<number | "All">(250);
 
+  useEffect(() => {
+    const savedLimit = localStorage.getItem("graphNodeLimit");
+    if (savedLimit) {
+      const parsedLimit = savedLimit === "All" ? "All" : parseInt(savedLimit, 10);
+      setLimit(parsedLimit);
+      
+      // Tell the parent component to fetch using this saved limit
+      onLimitChange?.(parsedLimit); 
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleLimitChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const val = e.target.value;
     const newLimit = val === "All" ? "All" : parseInt(val, 10);
+    
     setLimit(newLimit);
-    onLimitChange?.(newLimit); // Tell parent to refetch with new limit
+    localStorage.setItem("graphNodeLimit", val); // Persist it
+    onLimitChange?.(newLimit); // Tell parent to refetch
   };
 
   async function confirmAddNode() {
