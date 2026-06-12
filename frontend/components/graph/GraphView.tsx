@@ -84,8 +84,6 @@ type RGEdge = LinkObject & {
   source: string | RGNode;
   target: string | RGNode;
   label: string;
-  size: number;
-  fill: string;
 };
 
 export function GraphView({
@@ -197,43 +195,42 @@ export function GraphView({
     return Array.from(set);
   }, [nodes]);
 
+  // Node/link objects must stay referentially stable across selection,
+  // highlight and theme changes: react-force-graph stores simulation state
+  // (x/y/vx/vy and fx/fy pins) on these objects, so rebuilding them resets
+  // the layout. Memoize on data only; styling happens in the paint callbacks.
   const rgNodes: RGNode[] = useMemo(
     () =>
       visibleNodes.map((n) => {
-        const isHi = highlightNodes.includes(n.id);
-        const isSel = selectedNode === n.id;
         const layer = getLayer(n.labels);
-        const base = getNodeColor(n.labels);
-        const size = LAYER_SIZES[layer] || 14;
         return {
           id: n.id,
           label: n.label,
-          fill: isSel ? "#1e9352" : isHi ? "#74cf94" : base,
+          fill: getNodeColor(n.labels),
           data: { ...n.data, _class: pickClass(n.labels), _layer: layer },
-          size: isSel || isHi ? size + 4 : size,
+          size: LAYER_SIZES[layer] || 14,
         } satisfies RGNode;
       }),
-    [visibleNodes, highlightNodes, selectedNode]
+    [visibleNodes]
   );
 
   const rgEdges: RGEdge[] = useMemo(
     () =>
-      visibleEdges.map((e) => {
-        const isHi = highlightEdges.includes(e.id);
-        return {
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          label: e.label,
-          size: isHi ? 3 : 1.6,
-          fill: isHi ? "#1e9352" : theme === "dark" ? "#5a635c" : "#7a847e",
-        } satisfies RGEdge;
-      }),
-    [visibleEdges, highlightEdges, theme]
+      visibleEdges.map(
+        (e) =>
+          ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            label: e.label,
+          }) satisfies RGEdge
+      ),
+    [visibleEdges]
   );
 
-  // react-force-graph wants one { nodes, links } object. It mutates this
-  // structure during simulation, so memoize on the same deps as above.
+  const highlightNodeSet = useMemo(() => new Set(highlightNodes), [highlightNodes]);
+  const highlightEdgeSet = useMemo(() => new Set(highlightEdges), [highlightEdges]);
+
   const graphData = useMemo(
     () => ({ nodes: rgNodes, links: rgEdges }),
     [rgNodes, rgEdges]
@@ -306,10 +303,12 @@ export function GraphView({
   // Draw node bubble + label (replaces reagraph's labelType="all")
   const drawNode = useCallback(
     (node: RGNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      const r = node.size * SIZE_SCALE;
+      const isSel = selectedNode === node.id;
+      const isHi = highlightNodeSet.has(node.id);
+      const r = (isSel || isHi ? node.size + 4 : node.size) * SIZE_SCALE;
       ctx.beginPath();
       ctx.arc(node.x!, node.y!, r, 0, 2 * Math.PI);
-      ctx.fillStyle = node.fill;
+      ctx.fillStyle = isSel ? "#1e9352" : isHi ? "#74cf94" : node.fill;
       ctx.fill();
 
       // Label under the bubble, with a stroke for readability
@@ -324,7 +323,7 @@ export function GraphView({
       ctx.fillStyle = themeObj.node.label.color;
       ctx.fillText(node.label, node.x!, node.y! + r + 2);
     },
-    [themeObj]
+    [themeObj, selectedNode, highlightNodeSet]
   );
 
   // Pointer hit-area must match the drawn bubble + label
@@ -374,8 +373,8 @@ export function GraphView({
         nodePointerAreaPaint={drawNodePointerArea as any}
         nodeVal={(n: any) => n.size * SIZE_SCALE}
         // --- Edges ---
-        linkColor={(l: any) => l.fill}
-        linkWidth={(l: any) => l.size}
+        linkColor={(l: any) => (highlightEdgeSet.has(l.id) ? "#1e9352" : themeObj.edge.fill)}
+        linkWidth={(l: any) => (highlightEdgeSet.has(l.id) ? 3 : 1.6)}
         linkDirectionalArrowLength={4}
         linkDirectionalArrowRelPos={1} // arrow at the end, like edgeArrowPosition="end"
         linkCanvasObjectMode={() => "after"}
