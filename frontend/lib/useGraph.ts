@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, GraphEdge, GraphNode } from "./api";
 
-export function useGraph(layers: "entity" | "all" = "entity") {
+export function useGraph(limit: number | "All" = 250, layers: "entity" | "all" = "entity") {
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [edges, setEdges] = useState<GraphEdge[]>([]);
   const [loading, setLoading] = useState(false);
@@ -20,7 +20,7 @@ export function useGraph(layers: "entity" | "all" = "entity") {
     } finally {
       setLoading(false);
     }
-  }, [layers]);
+  }, [limit, layers]);
 
   useEffect(() => {
     refresh();
