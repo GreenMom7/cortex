@@ -249,10 +249,10 @@ export function GraphView({
             onChange={handleLimitChange}
             className="bg-transparent text-fg outline-none cursor-pointer font-semibold"
           >
-            <option value={250}>250 (Small)</option>
-            <option value={500}>500 (Medium)</option>
-            <option value={1000}>1000 (Large)</option>
-            <option value="All">All (Unlimited)</option>
+            <option className="bg-[var(--bg-elev)]" value={250}>250 (Small)</option>
+            <option className="bg-[var(--bg-elev)]" value={500}>500 (Medium)</option>
+            <option className="bg-[var(--bg-elev)]" value={1000}>1000 (Large)</option>
+            <option className="bg-[var(--bg-elev)]" value="All">All (Unlimited)</option>
           </select>
         </div>
         
