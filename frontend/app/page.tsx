@@ -10,7 +10,8 @@ import { SchemaPanel } from "@/components/graph/SchemaPanel";
 import { useGraph } from "@/lib/useGraph";
 
 export default function Page() {
-  const { nodes, edges, refresh } = useGraph();
+  const [limit, setLimit] = useState<number | "All">(250);
+  const { nodes, edges, refresh } = useGraph(limit);
   const [selected, setSelected] = useState<string | null>(null);
   const [highlightNodes, setHN] = useState<string[]>([]);
   const [highlightEdges, setHE] = useState<string[]>([]);
@@ -62,6 +63,8 @@ export default function Page() {
             highlightEdges={highlightEdges}
             onSelectNode={handleSelectNode}
             selectedNode={selected}
+            onChange={handleGraphRefresh}
+            onLimitChange={(newLimit) => setLimit(newLimit)}
           />
         </section>
 

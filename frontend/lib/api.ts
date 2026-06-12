@@ -87,13 +87,23 @@ export const api = {
     }),
 
   // Graph
-  getGraph: (limit = 250) =>
+  getGraph: (limit : number | "All" = 250) =>
     call<{ nodes: GraphNode[]; edges: GraphEdge[] }>(`/api/graph?limit=${limit}`),
   updateNode: (id: string, properties: Record<string, any>, new_label?: string) =>
     call(`/api/graph/nodes/${encodeURIComponent(id)}`, {
       method: "PATCH",
       body: JSON.stringify({ properties, new_label }),
     }),
+  addNode: async (label: string, properties: Record<string, any> = {}) => {
+    const res = await fetch("/api/graph/nodes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label, properties }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    return data.node_id;
+  },
   deleteNode: (id: string) =>
     call(`/api/graph/nodes/${encodeURIComponent(id)}`, { method: "DELETE" }),
   mergeNodes: (source_id: string, target_id: string) =>
