@@ -13,6 +13,7 @@ from app.models.schemas import (
     RelationUpdate,
     SchemaResponse,
     StatusResponse,
+    AddNode
 )
 from app.services.chat_service import graphrag_answer
 from app.services.neo4j_service import neo4j_service
@@ -32,9 +33,16 @@ async def get_schema():
 
 
 @router.get("/graph", response_model=GraphResponse)
-async def get_graph(limit: int = 250):
+async def get_graph(limit: str = "250"):
     _require_connected()
     return await neo4j_service.fetch_graph(limit=limit)
+
+
+@router.post("/graph/nodes")
+async def add_node(body: AddNode):
+    _require_connected()
+    node_id = await neo4j_service.add_node(body.label, body.properties)
+    return {"ok": True, "node_id": node_id}
 
 
 @router.patch("/graph/nodes/{node_id}")

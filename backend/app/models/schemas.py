@@ -38,6 +38,11 @@ class PipelineRequest(BaseModel):
     clear_existing: bool = False
 
 
+class AddNode(BaseModel):
+    label: str
+    properties: dict[str, Any] = Field(default_factory=dict)
+
+
 class NodeUpdate(BaseModel):
     properties: dict[str, Any] = Field(default_factory=dict)
     new_label: str | None = None
