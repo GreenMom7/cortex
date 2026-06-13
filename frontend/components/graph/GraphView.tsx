@@ -86,6 +86,23 @@ type RGEdge = LinkObject & {
   label: string;
 };
 
+// Gentle pull toward the origin, equivalent to d3's forceX(0) + forceY(0).
+// Replaces the default forceCenter, which rigidly translates the whole graph
+// every tick to keep its centroid at the origin — so dragging/pinning one
+// node off-center slides all the other nodes away in the opposite direction.
+function anchorForce(strength = 0.05) {
+  let nodes: RGNode[] = [];
+  return Object.assign(
+    (alpha: number) => {
+      for (const n of nodes) {
+        n.vx! -= n.x! * strength * alpha;
+        n.vy! -= n.y! * strength * alpha;
+      }
+    },
+    { initialize: (initNodes: RGNode[]) => { nodes = initNodes; } }
+  );
+}
+
 export function GraphView({
   nodes, edges, highlightNodes = [], highlightEdges = [],
   onSelectNode, selectedNode, layers, onLayersChange, onChange, onLimitChange
@@ -134,6 +151,17 @@ export function GraphView({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Replace forceCenter with the gentle anchor (see anchorForce). No deps:
+  // ForceGraph2D mounts lazily, so retry every render until the ref exists.
+  const forcesConfigured = useRef(false);
+  useEffect(() => {
+    const fg = ref.current;
+    if (!fg || forcesConfigured.current) return;
+    forcesConfigured.current = true;
+    fg.d3Force("center", null);
+    fg.d3Force("anchor", anchorForce());
+  });
 
   useEffect(() => {
     const savedLimit = localStorage.getItem("graphNodeLimit");
