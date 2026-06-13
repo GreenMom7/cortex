@@ -1,15 +1,15 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
-import type { GraphCanvasRef, GraphEdge, GraphNode } from "reagraph";
+import type { ForceGraphMethods, NodeObject, LinkObject } from "react-force-graph-2d";
 import { Layers, Maximize2, Minimize2, RotateCw, ZoomIn, ZoomOut, Plus, AlertTriangle } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { api, type GraphEdge as MyEdge, type GraphNode as MyNode } from "@/lib/api";
 import { toast } from "sonner";
 import { useEffect } from "react";
 
-const GraphCanvas = dynamic(() => import("reagraph").then((m) => m.GraphCanvas), { ssr: false });
+const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false });
 
 type Props = {
   nodes: MyNode[];
@@ -48,6 +48,8 @@ const LAYER_SIZES: Record<string, number> = {
   entity:   14,
 };
 
+const SIZE_SCALE = 0.5;
+
 const FALLBACK_COLOR = "#b8b1a0";
 
 function getLayer(labels: string[] | undefined): string {
@@ -70,12 +72,44 @@ function getNodeColor(labels: string[] | undefined): string {
   return CLASS_COLORS[cls] || FALLBACK_COLOR;
 }
 
+type RGNode = NodeObject & {
+  id: string;
+  label: string;
+  fill: string;
+  size: number;
+  data: Record<string, any>;
+};
+type RGEdge = LinkObject & {
+  id: string;
+  source: string | RGNode;
+  target: string | RGNode;
+  label: string;
+};
+
+// Gentle pull toward the origin, equivalent to d3's forceX(0) + forceY(0).
+// Replaces the default forceCenter, which rigidly translates the whole graph
+// every tick to keep its centroid at the origin — so dragging/pinning one
+// node off-center slides all the other nodes away in the opposite direction.
+function anchorForce(strength = 0.05) {
+  let nodes: RGNode[] = [];
+  return Object.assign(
+    (alpha: number) => {
+      for (const n of nodes) {
+        n.vx! -= n.x! * strength * alpha;
+        n.vy! -= n.y! * strength * alpha;
+      }
+    },
+    { initialize: (initNodes: RGNode[]) => { nodes = initNodes; } }
+  );
+}
+
 export function GraphView({
   nodes, edges, highlightNodes = [], highlightEdges = [],
   onSelectNode, selectedNode, layers, onLayersChange, onChange, onLimitChange
 }: Props) {
   const { theme } = useTheme();
-  const ref = useRef<GraphCanvasRef | null>(null);
+  const ref = useRef<ForceGraphMethods<RGNode, RGEdge> | undefined>(undefined);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const [hiddenLayers, setHiddenLayers] = useState<Set<string>>(new Set());
 
   const toggleLayer = (layer: string) => {
@@ -105,6 +139,29 @@ export function GraphView({
   const [isAdding, setIsAdding] = useState(false);
 
   const [limit, setLimit] = useState<number | "All">(250);
+
+  // react-force-graph needs explicit pixel dimensions; track the container.
+  const [dims, setDims] = useState({ width: 0, height: 0 });
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => {
+      setDims({ width: el.clientWidth, height: el.clientHeight });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // Replace forceCenter with the gentle anchor (see anchorForce). No deps:
+  // ForceGraph2D mounts lazily, so retry every render until the ref exists.
+  const forcesConfigured = useRef(false);
+  useEffect(() => {
+    const fg = ref.current;
+    if (!fg || forcesConfigured.current) return;
+    forcesConfigured.current = true;
+    fg.d3Force("center", null);
+    fg.d3Force("anchor", anchorForce());
+  });
 
   useEffect(() => {
     const savedLimit = localStorage.getItem("graphNodeLimit");
@@ -166,39 +223,45 @@ export function GraphView({
     return Array.from(set);
   }, [nodes]);
 
-  const rgNodes: GraphNode[] = useMemo(
+  // Node/link objects must stay referentially stable across selection,
+  // highlight and theme changes: react-force-graph stores simulation state
+  // (x/y/vx/vy and fx/fy pins) on these objects, so rebuilding them resets
+  // the layout. Memoize on data only; styling happens in the paint callbacks.
+  const rgNodes: RGNode[] = useMemo(
     () =>
       visibleNodes.map((n) => {
-        const isHi = highlightNodes.includes(n.id);
-        const isSel = selectedNode === n.id;
         const layer = getLayer(n.labels);
-        const base = getNodeColor(n.labels);
-        const size = LAYER_SIZES[layer] || 14;
         return {
           id: n.id,
           label: n.label,
-          fill: isSel ? "#1e9352" : isHi ? "#74cf94" : base,
+          fill: getNodeColor(n.labels),
           data: { ...n.data, _class: pickClass(n.labels), _layer: layer },
-          size: isSel || isHi ? size + 4 : size,
-        } satisfies GraphNode;
+          size: LAYER_SIZES[layer] || 14,
+        } satisfies RGNode;
       }),
-    [visibleNodes, highlightNodes, selectedNode]
+    [visibleNodes]
   );
 
-  const rgEdges: GraphEdge[] = useMemo(
+  const rgEdges: RGEdge[] = useMemo(
     () =>
-      visibleEdges.map((e) => {
-        const isHi = highlightEdges.includes(e.id);
-        return {
-          id: e.id,
-          source: e.source,
-          target: e.target,
-          label: e.label,
-          size: isHi ? 3 : 1.6,
-          fill: isHi ? "#1e9352" : theme === "dark" ? "#5a635c" : "#7a847e",
-        } satisfies GraphEdge;
-      }),
-    [visibleEdges, highlightEdges, theme]
+      visibleEdges.map(
+        (e) =>
+          ({
+            id: e.id,
+            source: e.source,
+            target: e.target,
+            label: e.label,
+          }) satisfies RGEdge
+      ),
+    [visibleEdges]
+  );
+
+  const highlightNodeSet = useMemo(() => new Set(highlightNodes), [highlightNodes]);
+  const highlightEdgeSet = useMemo(() => new Set(highlightEdges), [highlightEdges]);
+
+  const graphData = useMemo(
+    () => ({ nodes: rgNodes, links: rgEdges }),
+    [rgNodes, rgEdges]
   );
 
   const themeObj = useMemo(
@@ -254,27 +317,112 @@ export function GraphView({
   useEffect(() => {
     if (focusNodeId && nodes.some(n => n.id === focusNodeId)) {      
       setTimeout(() => {
-        ref.current?.fitNodesInView([focusNodeId]);         
+        const target = graphData.nodes.find((n) => n.id === focusNodeId);
+        if (target && target.x != null && target.y != null) {
+          ref.current?.centerAt(target.x, target.y, 600);
+          ref.current?.zoom(2.5, 600);
+        }
         setFocusNodeId(null); 
       }, 300);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, focusNodeId]);
 
+  // Draw node bubble + label (replaces reagraph's labelType="all")
+  const drawNode = useCallback(
+    (node: RGNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      const isSel = selectedNode === node.id;
+      const isHi = highlightNodeSet.has(node.id);
+      const r = (isSel || isHi ? node.size + 4 : node.size) * SIZE_SCALE;
+      ctx.beginPath();
+      ctx.arc(node.x!, node.y!, r, 0, 2 * Math.PI);
+      ctx.fillStyle = isSel ? "#1e9352" : isHi ? "#74cf94" : node.fill;
+      ctx.fill();
+
+      // Label under the bubble, with a stroke for readability
+      if (node.data?._layer === "chunk" && globalScale < 2) return;
+      const fontSize = Math.max(themeObj.node.label.fontSize / globalScale, 2.5);
+      ctx.font = `${fontSize}px monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.lineWidth = fontSize / 4;
+      ctx.strokeStyle = themeObj.node.label.stroke;
+      ctx.strokeText(node.label, node.x!, node.y! + r + 2);
+      ctx.fillStyle = themeObj.node.label.color;
+      ctx.fillText(node.label, node.x!, node.y! + r + 2);
+    },
+    [themeObj, selectedNode, highlightNodeSet]
+  );
+
+  // Pointer hit-area must match the drawn bubble + label
+  const drawNodePointerArea = useCallback(
+    (node: RGNode, color: string, ctx: CanvasRenderingContext2D) => {
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(node.x!, node.y!, node.size * SIZE_SCALE + 4, 0, 2 * Math.PI);
+      ctx.fill();
+    },
+    []
+  );
+
+  // Edge label at the midpoint (replaces edgeLabelPosition="natural")
+  const drawEdgeLabel = useCallback(
+    (link: RGEdge, ctx: CanvasRenderingContext2D, globalScale: number) => {
+      const start = link.source as RGNode;
+      const end = link.target as RGNode;
+      if (typeof start !== "object" || typeof end !== "object") return;
+      if (!link.label || globalScale < 1.2) return; // declutter when zoomed out
+
+      const mx = (start.x! + end.x!) / 2;
+      const my = (start.y! + end.y!) / 2;
+      const fontSize = Math.max(themeObj.edge.label.fontSize / globalScale, 2);
+      ctx.font = `${themeObj.edge.label.fontWeight} ${fontSize}px monospace`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.lineWidth = fontSize / 4;
+      ctx.strokeStyle = themeObj.edge.label.stroke;
+      ctx.strokeText(link.label, mx, my);
+      ctx.fillStyle = themeObj.edge.label.color;
+      ctx.fillText(link.label, mx, my);
+    },
+    [themeObj]
+  );
+
   return (
-    <div className="relative h-full w-full overflow-hidden">
-      <GraphCanvas
-        ref={ref}
-        nodes={rgNodes}
-        edges={rgEdges}
-        theme={themeObj as any}
-        layoutType="forceDirected2d"
-        labelType="all"
-        edgeArrowPosition="end"
-        edgeLabelPosition="natural"
-        draggable
-        animated
-        onNodeClick={(n) => onSelectNode?.(n.id)}
-        onCanvasClick={() => onSelectNode?.(null)}
+    <div ref={containerRef} className="relative h-full w-full overflow-hidden">
+      <ForceGraph2D
+        ref={ref as any}
+        width={dims.width}
+        height={dims.height}
+        graphData={graphData}
+        backgroundColor={themeObj.canvas.background}
+        // --- Nodes ---
+        nodeCanvasObject={drawNode as any}
+        nodePointerAreaPaint={drawNodePointerArea as any}
+        nodeVal={(n: any) => n.size * SIZE_SCALE}
+        // --- Edges ---
+        linkColor={(l: any) => (highlightEdgeSet.has(l.id) ? "#1e9352" : themeObj.edge.fill)}
+        linkWidth={(l: any) => (highlightEdgeSet.has(l.id) ? 3 : 1.6)}
+        linkDirectionalArrowLength={4}
+        linkDirectionalArrowRelPos={1} // arrow at the end, like edgeArrowPosition="end"
+        linkCanvasObjectMode={() => "after"}
+        linkCanvasObject={drawEdgeLabel as any}
+        // --- Interaction: Neo4j-style live drag ---
+        // Dragging is enabled by default; the simulation re-heats on drag so
+        // connected nodes follow. d3AlphaDecay/VelocityDecay tuned so the
+        // graph settles quickly but still feels springy while dragging.
+        enableNodeDrag
+        d3AlphaDecay={0.03}
+        d3VelocityDecay={0.35}
+        cooldownTime={4000}
+        onNodeDragEnd={(node: any) => {
+          // Pin the node where the user dropped it (Neo4j Browser behavior).
+          // Remove these two lines if nodes should drift back instead.
+          node.fx = node.x;
+          node.fy = node.y;
+        }}
+        onNodeClick={(n: any) => onSelectNode?.(n.id)}
+        onBackgroundClick={() => onSelectNode?.(null)}
       />
 
       {/* Legend — top-left */}
@@ -371,22 +519,22 @@ export function GraphView({
 
         {/* Floating controls — bottom-right */}
         <div className="flex flex-col gap-2 panel p-1.5">
-          <button className="btn btn-ghost !p-2" title="Zoom in" onClick={() => ref.current?.zoomIn()}>
+          <button className="btn btn-ghost !p-2" title="Zoom in" onClick={() => ref.current?.zoom(ref.current.zoom() * 1.4, 250)}>
             <ZoomIn size={14} />
           </button>
-          <button className="btn btn-ghost !p-2" title="Zoom out" onClick={() => ref.current?.zoomOut()}>
+          <button className="btn btn-ghost !p-2" title="Zoom out" onClick={() => ref.current?.zoom(ref.current.zoom() / 1.4, 250)}>
             <ZoomOut size={14} />
           </button>
-          <button className="btn btn-ghost !p-2" title="Fit" onClick={() => ref.current?.fitNodesInView()}>
+          <button className="btn btn-ghost !p-2" title="Fit" onClick={() => ref.current?.zoomToFit(400, 40)}>
             <Maximize2 size={14} />
           </button>
-          <button className="btn btn-ghost !p-2" title="Center" onClick={() => ref.current?.centerGraph()}>
+          <button className="btn btn-ghost !p-2" title="Center" onClick={() => ref.current?.centerAt(0, 0, 400)}>
             <Minimize2 size={14} />
           </button>
           <button
             className="btn btn-ghost !p-2"
             title="Re-fit"
-            onClick={() => ref.current?.fitNodesInView()}
+            onClick={() => ref.current?.zoomToFit(400, 40)}
           >
             <RotateCw size={14} />
           </button>

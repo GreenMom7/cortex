@@ -25,7 +25,7 @@ Built for DS50 — *Interactive GraphRAG: Human-in-the-Loop Knowledge Engineerin
 
 **Backend** — FastAPI + async Neo4j driver + SSE (`sse-starlette`) for progress streaming
 
-**Frontend** — Next.js 15 (App Router) + React 19 + Tailwind + [Reagraph](https://reagraph.dev) (WebGL) for the graph + Sonner for toasts
+**Frontend** — Next.js 15 (App Router) + React 19 + Tailwind + [react-force-graph](https://github.com/vasturiano/react-force-graph) (canvas, live d3-force) + Sonner for toasts
 
 **LLM providers** — OpenAI · Gemini · Anthropic · NVIDIA · Groq (the user picks at runtime — no recompile)
 
@@ -70,7 +70,7 @@ cortex/
     ├── components/
     │   ├── layout/Navbar.tsx            Brand mark + dark/light toggle
     │   ├── graph/
-    │   │   ├── GraphView.tsx            Reagraph canvas + zoom/fit/relayout
+    │   │   ├── GraphView.tsx            react-force-graph canvas + live drag + zoom/fit
     │   │   └── NodeDetails.tsx          Edit / merge / relate / delete
     │   ├── sidebar/
     │   │   ├── LLMConfigCard.tsx        Provider+model+key (smoke-tested)
