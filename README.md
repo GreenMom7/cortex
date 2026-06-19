@@ -1,23 +1,8 @@
-# Cortex — Interactive GraphRAG Dashboard
+# Cortex — Interactive GraphRAG 
 
-A human-in-the-loop control center for GraphRAG pipelines. Upload documents, watch entities and relationships get extracted into a Neo4j knowledge graph, manually fix what the LLM got wrong, and chat with the refined graph.
+Cortex is a web application that helps to understand the general framework of GraphRAG. GraphRAG in general helps to reduce LLM hallucination when giving the users answer. LLM is connected to an external knowledge base which serves for it to retrieve solid, genuine information on any specific-domain knowledge. 
 
-Built for DS50 — *Interactive GraphRAG: Human-in-the-Loop Knowledge Engineering with LangChain and Neo4j*.
-
----
-
-## What it does
-
-| Capability | How it shows up in the UI |
-|---|---|
-| Ingest unstructured docs (PDF, JSON, CSV, URLs, Wikipedia) | Sidebar → **Sources** card |
-| Extract entities + relationships with an LLM | Sidebar → **Run pipeline** button, live progress in the **Progress** card |
-| Visualise the resulting graph | Center pane (WebGL, drag, zoom, fit) |
-| Edit nodes (rename, change class, edit properties) | Right pane → **Node** tab |
-| Merge nodes, add or remove relationships | Right pane → **Node** tab buttons |
-| Track every edit | Right pane → **History** tab |
-| Ask questions; see the Cypher, the reasoning, and confidence scores | Right pane → **Chat** tab |
-| Watch retrieved nodes/edges light up green on the graph | Center pane responds to chat answers |
+Built for UTBM DS50 project : *Interactive GraphRAG: Human-in-the-Loop Knowledge Engineering with LangChain and Neo4j*.
 
 ---
 
@@ -32,86 +17,6 @@ Built for DS50 — *Interactive GraphRAG: Human-in-the-Loop Knowledge Engineerin
 **Embeddings** — HuggingFace sentence-transformers, NVIDIA, or OpenAI
 
 **Graph database** — Neo4j AuraDB (or self-hosted)
-
----
-
-## Repository layout
-
-```
-cortex/
-├── backend/
-│   ├── app/
-│   │   ├── main.py                      FastAPI entry, CORS, lifespan
-│   │   ├── core/
-│   │   │   ├── config.py                Env-driven settings (pydantic-settings)
-│   │   │   └── session.py               In-memory session: Neo4j conn, LLM
-│   │   │                                 choice, change history, SSE queues
-│   │   ├── models/schemas.py            Pydantic request/response models
-│   │   ├── api/
-│   │   │   ├── config_routes.py         /api/config/{providers,neo4j,llm,…}
-│   │   │   ├── pipeline_routes.py       /api/pipeline/{upload,run,progress}
-│   │   │   └── graph_routes.py          /api/graph, /api/chat, /api/history
-│   │   ├── services/
-│   │   │   ├── neo4j_service.py         Async driver + CRUD + history records
-│   │   │   ├── llm_service.py           Provider/model factory + catalog
-│   │   │   └── chat_service.py          Text→Cypher→answer GraphRAG pipeline
-│   │   └── pipeline/
-│   │       ├── loaders.py               PDF, JSON, CSV, URL, Wikipedia
-│   │       ├── extractor.py             LLM-prompted triple extraction
-│   │       └── orchestrator.py          load→chunk→extract→ingest +
-│   │                                     SSE progress broadcasts
-│   ├── requirements.txt
-│   ├── .env.example
-│   └── run.sh
-└── frontend/
-    ├── app/
-    │   ├── layout.tsx                   Theme provider + Sonner toaster
-    │   └── page.tsx                     3-column responsive grid
-    ├── components/
-    │   ├── layout/Navbar.tsx            Brand mark + dark/light toggle
-    │   ├── graph/
-    │   │   ├── GraphView.tsx            react-force-graph canvas + live drag + zoom/fit
-    │   │   └── NodeDetails.tsx          Edit / merge / relate / delete
-    │   ├── sidebar/
-    │   │   ├── LLMConfigCard.tsx        Provider+model+key (smoke-tested)
-    │   │   ├── Neo4jConfigCard.tsx      URI+user+pw (smoke-tested)
-    │   │   ├── ChunkingCard.tsx         Size, overlap, embedding model
-    │   │   ├── UploadCard.tsx           Drag-drop + URL field + per-item status
-    │   │   ├── ProgressCard.tsx         Stage dots + bar + live counters
-    │   │   └── Sidebar.tsx              Stacks all of the above
-    │   ├── chat/ChatPanel.tsx           Q&A + Cypher + reasoning + scores
-    │   └── history/HistoryPanel.tsx     Audit log
-    ├── lib/
-    │   ├── api.ts                       Typed fetch client for every endpoint
-    │   ├── theme.tsx                    light/dark via prefers-color-scheme
-    │   ├── useProgress.ts               EventSource hook for SSE progress
-    │   ├── useGraph.ts                  Graph data fetch + refresh
-    │   └── cn.ts                        clsx helper
-    ├── styles/globals.css               Theme tokens + utility classes
-    ├── tailwind.config.js
-    ├── next.config.js                   /api/* rewrite to FastAPI
-    ├── tsconfig.json
-    ├── package.json
-    └── .env.local.example
-```
-
----
-
-## Design system
-
-Minimalist, paper-white with terminal-green accents. Dark mode is deliberately *not* black — it's a muted forest-ink (`#0f1311`) so a long staring session at the graph doesn't burn your eyes.
-
-| Token | Light | Dark |
-|---|---|---|
-| `--bg` | `#fafbfa` | `#0f1311` |
-| `--bg-elev` | `#ffffff` | `#161b18` |
-| `--fg` | `#191c1a` | `#e7ebe8` |
-| `--accent` | `#1e9352` *moss-500* | `#74cf94` *moss-300* |
-| `--accent-soft` | `#d5f1de` | `#0f5b35` |
-
-Typography is a pair: **Inter** for prose and **JetBrains Mono** for every label, button, chip, code block, and metric. Everything that's "machine-y" (status chips, stage labels, counts, the Cypher block) is in mono — gives the UI a clear two-layer reading: prose for content, mono for chrome.
-
-The brand mark is built in pure CSS — concentric green dots in the navbar. No image asset, no SVG file, scales perfectly, recolors with the theme.
 
 ---
 
@@ -284,28 +189,7 @@ Practical workflow:
 
 ---
 
-## Suggested enhancements
-
-Things deliberately left out of the scaffold but easy to add:
-
-- **Undo** — `SessionState.history` already stores `before` snapshots; wire a button that POSTs them back.
-- **Auto-suggest relationships** — when the user opens a node, ask the LLM "what other entities in this graph are likely related to X?" and offer one-click adds.
-- **Versioned graphs** — each pipeline run gets a tag; the user can compare "before edits" vs "after edits" answer quality. This is exactly the benchmark the project deliverables call for.
-- **Cytoscape / sigma fallback** — if reagraph's WebGL gets shaky on very large graphs (>2k nodes), drop into a 2D Sigma renderer for big-graph mode.
-- **Cypher console** — a separate tab where power users type raw Cypher. The backend already supports it through `neo4j_service.run()`.
-- **Document inspector** — show the original chunks each triple came from. Requires storing chunk-id provenance on the relationships at ingest time.
-
----
-
-## Notes on safety & correctness
-
-- The chat service explicitly **blocks write Cypher** (`CREATE / DELETE / SET / MERGE / REMOVE / DROP / DETACH`) generated by the LLM. The graph is only ever mutated through the typed CRUD endpoints. Don't remove that guard.
-- API keys are kept in memory only; they never touch disk in this scaffold. For production add a vault.
-- Upload size is capped at `MAX_UPLOAD_MB` (default 50). Adjust in `.env`.
-- The session is single-user. Don't deploy this as-is for multiple users without per-user state isolation.
-
----
 
 ## License
 
-MIT — do whatever you want with it.
+MIT — Akmal
