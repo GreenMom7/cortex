@@ -226,35 +226,59 @@ export function GraphView({
   // Node/link objects must stay referentially stable across selection,
   // highlight and theme changes: react-force-graph stores simulation state
   // (x/y/vx/vy and fx/fy pins) on these objects, so rebuilding them resets
-  // the layout. Memoize on data only; styling happens in the paint callbacks.
-  const rgNodes: RGNode[] = useMemo(
-    () =>
-      visibleNodes.map((n) => {
-        const layer = getLayer(n.labels);
-        return {
-          id: n.id,
-          label: n.label,
-          fill: getNodeColor(n.labels),
-          data: { ...n.data, _class: pickClass(n.labels), _layer: layer },
-          size: LAYER_SIZES[layer] || 14,
-        } satisfies RGNode;
-      }),
-    [visibleNodes]
-  );
+  // the layout. Styling happens in the paint callbacks, not here.
+  //
+  // Crucially, stability must also survive a refetch (every edit calls
+  // onChange -> refresh, which replaces `nodes`/`edges` with fresh objects).
+  // We reconcile by id against a cache so unchanged nodes keep the SAME object
+  // (and thus their position + pins): an edit then only adds/removes/relabels
+  // the affected element instead of re-laying-out the entire graph.
+  const nodeCache = useRef(new Map<string, RGNode>());
+  const rgNodes: RGNode[] = useMemo(() => {
+    const cache = nodeCache.current;
+    const seen = new Set<string>();
+    const out = visibleNodes.map((n) => {
+      const layer = getLayer(n.labels);
+      const fill = getNodeColor(n.labels);
+      const size = LAYER_SIZES[layer] || 14;
+      const data = { ...n.data, _class: pickClass(n.labels), _layer: layer };
+      seen.add(n.id);
+      const existing = cache.get(n.id);
+      if (existing) {
+        // Patch label/styling in place; keep x/y/vx/vy + fx/fy pins.
+        existing.label = n.label;
+        existing.fill = fill;
+        existing.size = size;
+        existing.data = data;
+        return existing;
+      }
+      const created: RGNode = { id: n.id, label: n.label, fill, size, data };
+      cache.set(n.id, created);
+      return created;
+    });
+    for (const id of cache.keys()) if (!seen.has(id)) cache.delete(id);
+    return out;
+  }, [visibleNodes]);
 
-  const rgEdges: RGEdge[] = useMemo(
-    () =>
-      visibleEdges.map(
-        (e) =>
-          ({
-            id: e.id,
-            source: e.source,
-            target: e.target,
-            label: e.label,
-          }) satisfies RGEdge
-      ),
-    [visibleEdges]
-  );
+  const edgeCache = useRef(new Map<string, RGEdge>());
+  const rgEdges: RGEdge[] = useMemo(() => {
+    const cache = edgeCache.current;
+    const seen = new Set<string>();
+    const out = visibleEdges.map((e) => {
+      seen.add(e.id);
+      const existing = cache.get(e.id);
+      if (existing) {
+        // Reuse the object so engine-resolved source/target node refs persist.
+        existing.label = e.label;
+        return existing;
+      }
+      const created: RGEdge = { id: e.id, source: e.source, target: e.target, label: e.label };
+      cache.set(e.id, created);
+      return created;
+    });
+    for (const id of cache.keys()) if (!seen.has(id)) cache.delete(id);
+    return out;
+  }, [visibleEdges]);
 
   const highlightNodeSet = useMemo(() => new Set(highlightNodes), [highlightNodes]);
   const highlightEdgeSet = useMemo(() => new Set(highlightEdges), [highlightEdges]);
