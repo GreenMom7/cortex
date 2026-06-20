@@ -177,4 +177,5 @@ export type ChatResponse = {
   context: string;
   reasoning: { step: string; detail: string }[];
   scores: { retrieval: number; confidence: number };
+  execution_time: number;
 };

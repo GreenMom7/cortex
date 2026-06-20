@@ -111,24 +111,36 @@ export function ChatPanel({
                 </details>
 
                 {/* Scores */}
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-1 items-center">
                   {/* Retrieval Score */}
                   <div className="group relative">
                     <ScorePill label="retrieval" value={t.r.scores.retrieval} />
                     <div className="absolute bottom-full left-0 mb-1 hidden w-48 rounded bg-gray-900 p-2 text-xs text-white group-hover:block z-50">
-                      Measures how well the retrieved facts match your question.
+                      How well the retrieved facts match your question
                     </div>
                   </div>
                   {/* Confidence Score */}
                   <div className="group relative">
                     <ScorePill label="confidence" value={t.r.scores.confidence} />
                     <div className="absolute bottom-full left-0 mb-1 hidden w-48 rounded bg-gray-900 p-2 text-xs text-white group-hover:block z-50">
-                      Measures how much of the final answer is based directly on the retrieved facts.
+                      How much of the final answer is based directly on the retrieved facts
                     </div>
                   </div>
                   
+                  {/* Nodes Lit */}
                   <div className="group relative">
-                    <span className="chip">{t.r.node_ids.length} nodes lit</span>
+                    <span className="chip">{t.r.node_ids.length} nodes</span>
+                    <div className="absolute bottom-full right-0 mb-1 hidden w-48 rounded bg-gray-900 p-2 text-xs text-white group-hover:block z-50">
+                      Total number of KG nodes activated during this query
+                    </div>
+                  </div>
+
+                  {/* Execution Time */}
+                  <div className="group relative">
+                    <span className="font-mono text-[0.75rem] text-accent">{t.r.execution_time}s</span>
+                    <div className="absolute bottom-full right-0 mb-1 hidden w-48 rounded bg-gray-900 p-2 text-xs text-white group-hover:block z-50">
+                      Execution time for processing the request
+                    </div>
                   </div>
                 </div>
               </div>
