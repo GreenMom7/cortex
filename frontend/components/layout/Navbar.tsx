@@ -1,6 +1,7 @@
 "use client";
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "@/lib/theme";
+import { Brain, BrainCircuit, BrainCog } from "lucide-react";
 
 export function Navbar() {
   const { theme, toggle } = useTheme();
@@ -11,7 +12,8 @@ export function Navbar() {
       style={{ background: "color-mix(in srgb, var(--bg) 80%, transparent)" }}
     >
       <div className="flex items-center gap-3">
-        <span className="brand-mark" aria-hidden />
+        {/* <span className="brand-mark" aria-hidden /> */}
+        <BrainCircuit size={20} className="text-[var(--accent)]" />
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-[1.05rem] font-semibold tracking-tight">
             cortex
@@ -23,7 +25,7 @@ export function Navbar() {
       </div>
 
       <div className="flex items-center gap-3">
-        <span className="hidden sm:inline-flex chip font-mono">v0.1</span>
+        <span className="hidden sm:inline-flex chip font-mono">v1.0</span>
         <button
           onClick={toggle}
           className="btn btn-ghost"
