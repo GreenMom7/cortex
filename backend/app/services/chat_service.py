@@ -25,6 +25,8 @@ from app.core.session import state
 from app.services.llm_service import get_llm
 from app.services.neo4j_service import neo4j_service
 
+import time
+
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -233,6 +235,8 @@ def _entity_fallback_query(stems: list[str]) -> str:
 
 
 async def graphrag_answer(question: str, history: list[dict] | None = None) -> dict[str, Any]:
+    start_time = time.perf_counter()
+
     reasoning: list[dict] = []
     llm = get_llm()
     history_text = _format_history(history)
@@ -286,6 +290,7 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
             "context": "",
             "reasoning": reasoning + [{"step": "guard", "detail": "Write operation blocked."}],
             "scores": {"retrieval": 0.0, "confidence": 0.0},
+            "execution_time": round(time.perf_counter() - start_time, 2),
         }
 
     reasoning.append({"step": "generate_cypher", "detail": cypher})
@@ -374,6 +379,7 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
                 "context": "",
                 "reasoning": reasoning + [{"step": "error", "detail": str(e2)}],
                 "scores": {"retrieval": 0.0, "confidence": 0.0},
+                "execution_time": round(time.perf_counter() - start_time, 2),
             }
 
     # Build combined context from passages (vector search) + graph facts
@@ -400,6 +406,8 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
     answer = _collapse_repetition(answer)
     answer = answer[:1500]
     reasoning.append({"step": "synthesise_answer", "detail": f"{len(answer)} chars"})
+
+    execution_time = time.perf_counter() - start_time
 
     # Step 4: semantic scoring
     # Score against individual sentences (max-pooling) rather than the whole
@@ -436,4 +444,5 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
         "context": context,
         "reasoning": reasoning,
         "scores": {"retrieval": round(retrieval_score, 2), "confidence": round(confidence_score, 2)},
+        "execution_time": round(execution_time, 2),
     }
