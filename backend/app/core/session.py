@@ -48,6 +48,10 @@ class SessionState:
     # Vector index availability (set during pipeline startup)
     vector_index_available: bool = False
 
+    # Set by the skip-extraction endpoint to stop extracting more chunks and
+    # jump straight to ingestion with whatever triples were gathered so far.
+    skip_extraction: bool = False
+
     # Pipeline progress
     progress: dict[str, Any] = field(default_factory=lambda: {
         "stage": "idle",            # idle | loading | chunking | persisting | extracting | ingesting | done

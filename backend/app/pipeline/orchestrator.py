@@ -46,6 +46,7 @@ async def run_pipeline(sources: Iterable[str], clear_existing: bool = False, ent
 
     llm = get_llm()
     loop = asyncio.get_running_loop()
+    state.skip_extraction = False
 
     state.progress.update(
         stage="loading", chunks_total=0, chunks_processed=0,
@@ -177,11 +178,19 @@ async def run_pipeline(sources: Iterable[str], clear_existing: bool = False, ent
     all_triples: list[dict] = []
     failures: list[str] = []
 
+    def _interruptible_sleep(seconds: float) -> None:
+        """Sleep in short slices so a skip request can cut a long retry backoff short."""
+        end = time.monotonic() + seconds
+        while time.monotonic() < end and not state.skip_extraction:
+            time.sleep(0.2)
+
     def _work(text: str, chunk_id: str) -> tuple[list[dict], str | None]:
         max_retries = 5
         base_delay = 7.0
 
         for attempt in range(max_retries):
+            if state.skip_extraction:
+                return [], None  # user asked to stop; skip this chunk (not a failure)
             try:
                 triples = extract_from_chunk(text, llm, entity_types=entity_types)
                 for t in triples:
@@ -194,7 +203,7 @@ async def run_pipeline(sources: Iterable[str], clear_existing: bool = False, ent
                 if is_rate_limit and attempt < max_retries - 1:
                     sleep_time = base_delay * (2 ** attempt)
                     print(f"[pipeline] Rate limit hit. Worker pausing for {sleep_time}s... (Attempt {attempt+1}/{max_retries})", flush=True)
-                    time.sleep(sleep_time)
+                    _interruptible_sleep(sleep_time)
                     continue
 
                 return [], f"{type(exc).__name__}: {exc}"
@@ -207,6 +216,8 @@ async def run_pipeline(sources: Iterable[str], clear_existing: bool = False, ent
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         for i in range(0, len(chunks), batch_size):
+            if state.skip_extraction:
+                break
             batch = chunks[i:i + batch_size]
             batch_chunk_ids = [chunk_id_map.get(i + j, f"unknown_{i+j}") for j in range(len(batch))]
 
@@ -236,6 +247,13 @@ async def run_pipeline(sources: Iterable[str], clear_existing: bool = False, ent
 
             if i + batch_size < len(chunks):
                 await asyncio.sleep(batch_delay)
+
+    if state.skip_extraction:
+        await _push(
+            f"Extraction stopped by user — ingesting {len(all_triples)} triples "
+            f"from {processed_count}/{len(chunks)} chunks"
+        )
+        state.skip_extraction = False
 
     if failures:
         sample = "; ".join(failures[:3])
