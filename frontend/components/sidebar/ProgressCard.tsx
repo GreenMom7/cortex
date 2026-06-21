@@ -1,12 +1,33 @@
 "use client";
-import { Activity } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Activity, SkipForward } from "lucide-react";
 import { useProgress } from "@/lib/useProgress";
+import { api } from "@/lib/api";
+import { toast } from "sonner";
 
 const STAGES = ["idle", "loading", "chunking", "persisting", "extracting", "ingesting", "done"] as const;
 
 export function ProgressCard({ onDone }: { onDone?: () => void }) {
   const p = useProgress(onDone);
   const stageIdx = STAGES.indexOf(p.stage);
+  const [skipping, setSkipping] = useState(false);
+
+  // Reset the local "skipping" state once extraction is no longer running.
+  useEffect(() => {
+    if (p.stage !== "extracting") setSkipping(false);
+  }, [p.stage]);
+
+  async function skipToIngestion() {
+    setSkipping(true);
+    try {
+      const res = await api.skipExtraction();
+      toast[res.ok ? "success" : "info"](res.message);
+      if (!res.ok) setSkipping(false);
+    } catch (e: any) {
+      toast.error(e.message);
+      setSkipping(false);
+    }
+  }
   const pct = p.chunks_total > 0
     ? Math.round((p.chunks_processed / p.chunks_total) * 100)
     : p.stage === "done" ? 100 : 0;
@@ -57,6 +78,17 @@ export function ProgressCard({ onDone }: { onDone?: () => void }) {
         <p className="font-mono text-[0.7rem]" style={{ color: "var(--danger)" }}>
           {p.chunks_failed} chunk(s) failed — see backend log for cause (likely LLM rate-limit).
         </p>
+      )}
+
+      {p.stage === "extracting" && (
+        <button
+          onClick={skipToIngestion}
+          disabled={skipping}
+          className="btn w-full justify-center"
+          title="Stop extracting more chunks and ingest the triples gathered so far"
+        >
+          <SkipForward size={13} /> {skipping ? "Stopping…" : "Skip to ingestion"}
+        </button>
       )}
 
       {p.message && (

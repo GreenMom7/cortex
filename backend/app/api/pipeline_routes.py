@@ -72,6 +72,15 @@ async def run(req: PipelineRequest, background: BackgroundTasks):
     return {"ok": True, "message": "Pipeline started; subscribe to /api/pipeline/progress for updates"}
 
 
+@router.post("/skip-extraction")
+async def skip_extraction():
+    """Stop extracting more chunks and jump straight to ingesting what's gathered so far."""
+    if state.progress.get("stage") != "extracting":
+        return {"ok": False, "message": "Not currently extracting."}
+    state.skip_extraction = True
+    return {"ok": True, "message": "Stopping extraction — ingesting triples gathered so far."}
+
+
 @router.get("/progress/snapshot")
 async def progress_snapshot():
     """One-shot snapshot of current pipeline progress (polling fallback for SSE)."""

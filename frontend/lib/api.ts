@@ -87,6 +87,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ sources, clear_existing, entity_types }),
     }),
+  skipExtraction: () =>
+    call<{ ok: boolean; message: string }>("/api/pipeline/skip-extraction", { method: "POST" }),
 
   // Graph
   getGraph: (limit: number | "All" = 250, layers: "entity" | "all" = "entity") =>
