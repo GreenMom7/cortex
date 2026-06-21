@@ -419,7 +419,10 @@ async def graphrag_answer(question: str, history: list[dict] | None = None) -> d
         score_texts = [answer] + sentences
         score_embeddings = SIMILARITY_MODEL.encode(score_texts, convert_to_tensor=True)
         if cached_q_embedding is not None:
-            q_emb = torch.tensor(cached_q_embedding, device=score_embeddings.device) if not hasattr(cached_q_embedding, 'device') else cached_q_embedding.to(score_embeddings.device)
+            # as_tensor handles both numpy arrays and tensors and moves to the
+            # target device. Don't sniff for a `.device` attr to tell them apart:
+            # NumPy 2.0+ gives ndarrays a `.device`, which broke the old check.
+            q_emb = torch.as_tensor(cached_q_embedding, device=score_embeddings.device)
         else:
             q_emb = SIMILARITY_MODEL.encode(effective_question, convert_to_tensor=True)
         a_emb = score_embeddings[0]
